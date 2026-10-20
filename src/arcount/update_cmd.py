@@ -101,13 +101,16 @@ def _expected_sha(tarball: Path, given: str | None) -> str | None:
     return None
 
 
-def extract(tarball: Path, dest: Path, sha: str | None, out: S.Out, origin: str | None = None) -> Path:
+def extract(tarball: Path, dest: Path, sha: str | None, out: S.Out, origin: str | None = None,
+            verified: bool = False) -> Path:
     want = _expected_sha(tarball, sha)
     h = hashlib.sha256()
     with open(tarball, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
-    if want is None and origin:
+    if want is None and verified:
+        pass                        # authenticity already established by the release signature
+    elif want is None and origin:
         out.note(f"integrity rests on HTTPS to {origin}; the release is not signed")
     elif want is None:
         out.warn("no checksum given (--sha256 or a .sha256 file next to the tarball): "
@@ -315,6 +318,7 @@ class Updater:
                     print(f"  ok    already at {old}; newest release is {tag}; nothing to do")
                     return 0
                 self._confirm(old, tag, origin)
+                unsigned_ok = False
                 tarball, sig = self.gh.fetch_signed(repo, tag, tmp)
                 if tarball is None:
                     if not a.allow_unsigned:
@@ -331,12 +335,13 @@ class Updater:
                             raise UpdateError(f"{tag}: {e}. Refusing; the download may be tampered with.") from None
                         if not a.allow_unsigned:
                             raise UpdateError(f"cannot verify {tag}: {e}") from None
+                        unsigned_ok = True
                         out.warn(f"signature not checked ({e}); trusting HTTPS to {origin} only")
                     else:
                         out.ok(f"signature verified: {what}")
             except github.GithubError as e:
                 raise UpdateError(str(e)) from None
-            pkg = extract(tarball, tmp / "src", None, out, origin)
+            pkg = extract(tarball, tmp / "src", None, out, origin, verified=sig is not None and not unsigned_ok)
             if read_version(pkg) != tag.lstrip("v"):
                 raise UpdateError(f"tag {tag} contains version {read_version(pkg)}; "
                                   f"refusing a mislabelled release")

@@ -1,8 +1,8 @@
-"""`arcount update`: upgrade an installed Arcount from a newer source, with checks and rollback.
+"""`arcount update`: upgrade an installed Arcount, with checks and automatic rollback.
 
-    sudo arcount update --from ~/arcount            # a git checkout (contains src/arcount)
-    sudo arcount update --from arcount-0.2.0.tar.gz # a tarball from packaging/make-dist.sh
-    sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m arcount update   # from inside a checkout, no --from needed
+    sudo arcount update                    # newest release tag on GitHub (asks first)
+    arcount update --check                 # just say whether a newer release exists
+    sudo arcount update --from ~/arcount   # a local checkout, or a make-dist tarball
 
 What it guards against:
   * a broken download/checkout: the new code is syntax-checked, imported and run against your
@@ -13,6 +13,7 @@ What it guards against:
   * a new version that will not start: the service is health-checked after the restart and the
     old version (and database) are put back automatically if it fails.
 Config (/etc/arcount/arcount.toml) is never modified. History is backed up first.
+GitHub downloads are protected by TLS only (releases are not signed), hence the confirmation.
 """
 from __future__ import annotations
 
@@ -29,7 +30,10 @@ import tempfile
 import time
 from pathlib import Path
 
+from . import config as cfgmod
+from . import github
 from . import setup_cmd as S
+from .github import version_key
 # Everything the swap-and-restart path needs is imported up front: once lib/arcount is replaced,
 # a lazy import in this still-running process would load NEW modules next to OLD ones.
 from .cli import DEFAULT_DB, DEFAULT_SOCK, ctl
@@ -43,10 +47,6 @@ HEALTH_TIMEOUT = 20
 
 class UpdateError(Exception):
     pass
-
-
-def version_key(v: str) -> tuple:
-    return tuple(int(x) for x in re.findall(r"\d+", v))
 
 
 def read_version(pkg: Path) -> str | None:
@@ -100,13 +100,15 @@ def _expected_sha(tarball: Path, given: str | None) -> str | None:
     return None
 
 
-def extract(tarball: Path, dest: Path, sha: str | None, out: S.Out) -> Path:
+def extract(tarball: Path, dest: Path, sha: str | None, out: S.Out, origin: str | None = None) -> Path:
     want = _expected_sha(tarball, sha)
     h = hashlib.sha256()
     with open(tarball, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
-    if want is None:
+    if want is None and origin:
+        out.note(f"integrity rests on HTTPS to {origin}; the release is not signed")
+    elif want is None:
         out.warn("no checksum given (--sha256 or a .sha256 file next to the tarball): "
                  "integrity of the download is NOT verified")
     elif h.hexdigest() != want:
@@ -157,8 +159,10 @@ def validate(pkg: Path, config: Path, out: S.Out) -> None:
 
 # ---- the update ------------------------------------------------------------------------
 class Updater:
-    def __init__(self, args, run=S._run, health=None, services: bool | None = None):
+    def __init__(self, args, run=S._run, health=None, services: bool | None = None,
+                 latest=github.latest_tag, download=github.download_tarball):
         self.args = args
+        self.latest, self.download = latest, download
         self.staging = getattr(args, "root", None) is not None
         self.root = Path(args.root or "/")
         self.services = (not self.staging and not args.no_restart) if services is None else services
@@ -241,33 +245,75 @@ class Updater:
             reason = f"daemon reports version {r.get('version')!r}, expected {want_version!r}"
         return reason
 
+    def _config(self):
+        try:
+            return cfgmod.load(self.cfg if self.cfg.exists() else None)
+        except cfgmod.ConfigError:
+            return cfgmod.Config()
+
+    def _confirm(self, old: str, tag: str, origin: str) -> None:
+        a = self.args
+        if a.yes or a.dry_run or self.staging:
+            return
+        print(f"\nThis will download {tag} from {origin} and install it as root "
+              f"(currently {old}).")
+        if not sys.stdin.isatty():
+            raise UpdateError("not interactive: add --yes to proceed")
+        if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
+            raise UpdateError("cancelled by user")
+
     # -- main --
     def update(self, source: Path | None, tmp: Path) -> int:
         out, a = self.out, self.args
         print("Checking")
-        if not self.staging and os.geteuid() != 0:
-            print("update must run as root: sudo arcount update --from <dir|tarball>")
-            return 1
         if not (self.lib / "arcount").exists() and not self.prev.exists():
             raise UpdateError("Arcount is not installed here; run `sudo arcount setup` first")
-        self._recover_interrupted()
+        if not a.check and not a.dry_run and (self.staging or os.geteuid() == 0):
+            self._recover_interrupted()
 
-        src = source
-        if src is None:         # running from a checkout: update from the code we are running
-            running = Path(__file__).resolve().parent
-            if running == self.cur.resolve():
-                raise UpdateError("say where the new version is: arcount update --from <dir|tarball>")
-            src = running
-        if src.is_file():
-            pkg = extract(src, tmp / "src", a.sha256, out)
-        elif src.is_dir():
-            pkg = find_package(src)
+        old = read_version(self.cur) or "unknown"
+        origin = tag = None
+        if source is None:      # the default: GitHub
+            cfg = self._config()
+            repo = a.repo or cfg.updates.repo
+            origin = f"github.com/{repo}"
+            try:
+                tag = a.tag or self.latest(repo)[0]
+                if a.check:
+                    ver = tag.lstrip("v")
+                    if version_key(ver) > version_key(old):
+                        print(f"  update available: {old} -> {ver}   (sudo arcount update)")
+                    else:
+                        print(f"  up to date ({old}; newest release is {ver})")
+                    return 0
+                if not a.dry_run and not self.staging and os.geteuid() != 0:
+                    print("update must run as root: sudo arcount update")
+                    return 1
+                if not a.force and version_key(tag.lstrip("v")) <= version_key(old) and not a.tag:
+                    print(f"  ok    already at {old}; newest release is {tag}; nothing to do")
+                    return 0
+                self._confirm(old, tag, origin)
+                tarball = self.download(repo, tag, tmp / "release.tar.gz")
+            except github.GithubError as e:
+                raise UpdateError(str(e)) from None
+            pkg = extract(tarball, tmp / "src", None, out, origin)
+            if read_version(pkg) != tag.lstrip("v"):
+                raise UpdateError(f"tag {tag} contains version {read_version(pkg)}; "
+                                  f"refusing a mislabelled release")
         else:
-            raise UpdateError(f"no such file or directory: {src}")
+            if a.check:
+                raise UpdateError("--check looks at GitHub; it cannot be combined with --from")
+            src = source
+            if src.is_file():
+                pkg = extract(src, tmp / "src", a.sha256, out)
+            elif src.is_dir():
+                pkg = find_package(src)
+            else:
+                raise UpdateError(f"no such file or directory: {src}")
         if pkg.resolve() == self.cur.resolve():
             raise UpdateError("the source is the installed copy itself; point --from at the new version")
 
-        old, new = read_version(self.cur) or "unknown", read_version(pkg)
+        new = read_version(pkg)
         if not new:
             raise UpdateError(f"cannot read the version from {pkg / '__init__.py'}")
         new_schema, db_now = read_schema(pkg), db_schema(self.db)
@@ -279,7 +325,10 @@ class Updater:
         if new == old and not a.force:
             print(f"  ok    already at {old}; nothing to do (--force reinstalls the same version)")
             return 0
-        out.ok(f"{old} -> {new}")
+        if source is not None and not a.dry_run and not self.staging and os.geteuid() != 0:
+            print("update must run as root: sudo arcount update --from <dir|tarball>")
+            return 1
+        out.ok(f"{old} -> {new}" + (f"  (from {origin}, tag {tag})" if origin else ""))
         validate(pkg, self.cfg, out)
         S.preflight(out, need_systemd=self.services)
         if out.problems:

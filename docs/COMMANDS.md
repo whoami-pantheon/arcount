@@ -115,23 +115,34 @@ Install (or repair) Arcount on this machine. Safe to re-run; never overwrites yo
 
 From a checkout: `sudo ./packaging/install.sh` (same thing; `packaging/uninstall.sh [--purge]`).
 
-### `sudo arcount update [options]`
-Upgrade an installed Arcount without reinstalling by hand.
+### `arcount update [options]`
+Upgrade an installed Arcount. By default it fetches the **newest release tag from GitHub**
+(`[updates] repo` in the config; default `whoami-pantheon/arcount`).
 | Option | Meaning |
 |---|---|
-| `--from DIR\|TARBALL` | the new version: a git checkout, or a tarball from `packaging/make-dist.sh`. Omit it when running from inside a checkout: `sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m arcount update` |
-| `--sha256 HEX` | expected tarball checksum (a `<tarball>.sha256` file beside it is used automatically) |
+| *(none)* | find the newest `vX.Y.Z` tag, ask for confirmation, download, verify, install, restart (sudo) |
+| `--check` | only say whether a newer release exists; no sudo, changes nothing |
+| `--tag vX.Y.Z` | install that release instead of the newest (older needs `--force`) |
+| `--repo OWNER/NAME` | use another GitHub repository (a fork) for this run |
+| `--yes`, `-y` | do not ask before downloading and installing (needed when not at a terminal) |
+| `--from DIR\|TARBALL` | install from a local checkout or a `packaging/make-dist.sh` tarball instead of GitHub (sudo) |
+| `--sha256 HEX` | with a tarball: expected checksum (a `<tarball>.sha256` beside it is used automatically) |
 | `--dry-run` | do every check, change nothing |
 | `--force` | reinstall the same version, or allow a downgrade |
 | `--no-restart` | swap the files but leave the running daemon alone |
 
-What it does, in order: verifies the tarball and refuses unsafe archives; compiles and imports the
-new code and checks it accepts **your current config**; refuses if your history database is from a
-newer schema; backs the database up to `arcount.db.pre-update`; swaps the package in (old copy kept
-as `/opt/arcount/lib/arcount.prev`); refreshes launchers and the systemd unit; restarts the
-service and waits for the **new version** to answer; if it does not, **rolls back** automatically
-(code, and the database if it was migrated). Your config is never modified. The desktop agent keeps
-running old code until you log out and in. Details and caveats: README, "Upgrading".
+What it does, in order: finds the release; downloads it over HTTPS (github.com hosts only, size
+capped, unsafe archive paths rejected); refuses a tag whose contents carry a different version;
+compiles and imports the new code and checks it accepts **your current config**; refuses if your
+history database is from a newer schema; backs the database up to `arcount.db.pre-update`; swaps
+the package in (old copy kept as `/opt/arcount/lib/arcount.prev`); refreshes launchers and the
+systemd unit; restarts the service and waits for the **new version** to answer; if it does not,
+**rolls back** automatically (code, and the database if it was migrated). Your config is never
+modified. The desktop agent keeps running old code until you log out and in.
+
+**Trust:** GitHub releases are not signed. You are trusting TLS to github.com and the repository
+owner's account, the same as `git pull` + install. That is why it asks first. Use `--from` with a
+checkout you have reviewed if you want to inspect the code before installing.
 
 ---
 
@@ -139,7 +150,7 @@ running old code until you log out and in. Details and caveats: README, "Upgradi
 | Program | Purpose |
 |---|---|
 | `arcountd` | the daemon (run by systemd). Options: `--config FILE`, `--state-dir DIR`, `--run-dir DIR`, `--no-nm` (do not use NetworkManager/iw), `--cleanup-pins` (remove recorded gateway pins and exit; run by systemd on stop), `-v/--verbose` |
-| `arcount-notify` | per-user popup agent, started at login. Options: `--sock PATH`, `--min-severity LEVEL` (default from config `[agent]`), `-v` |
+| `arcount-notify` | per-user popup agent, started at login; also shows the update notice. Options: `--sock PATH`, `--min-severity LEVEL` (default from config `[agent]`), `--no-update-check`, `-v` |
 | `python3 -m arcount.capture IFACE` | debug: print every ARP frame seen on an interface (needs root/CAP_NET_RAW) |
 
 ## Files and locations

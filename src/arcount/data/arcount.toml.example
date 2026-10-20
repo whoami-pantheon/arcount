@@ -75,3 +75,13 @@ min_severity = "high"
 
 [agent]                          # the per-user desktop popup agent (arcount-notify)
 min_severity = "medium"
+
+# --- Update notices -----------------------------------------------------------------------
+[updates]
+# The desktop agent checks GitHub's public API about once a day and shows ONE popup per new
+# release ("Arcount 0.2.0 is available ... sudo arcount update"). It never installs anything by
+# itself. GitHub sees your IP address and the string "arcount/<version>"; nothing else is sent.
+# Set check = false to disable all update lookups.
+check = true
+repo = "whoami-pantheon/arcount"  # GitHub owner/name that `arcount update` and the notice look at
+interval_hours = 24

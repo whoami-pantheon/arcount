@@ -133,3 +133,57 @@ def test_show_routes_offers_synchronously_when_not_threaded():
     run2 = FakeRun()
     na.show(alert("high"), run2, threaded=False)
     assert len(run2.calls) == 1 and "-A" not in run2.calls[0]
+
+
+# ---- update notice ---------------------------------------------------------------------
+def test_update_notice_once_per_version(tmp_path):
+    from arcount.config import Updates
+    calls, state = [], str(tmp_path / "state" / "n")
+    run = lambda cmd, **k: calls.append(cmd)
+    u = Updates()
+    assert na.check_for_update(u, "0.1.0", lambda r: ("v0.2.0", "0.2.0"), run, state) == "0.2.0"
+    assert len(calls) == 1 and "Arcount 0.2.0 is available" in calls[0][-2]
+    assert "sudo arcount update" in calls[0][-1] and "check = false" in calls[0][-1]
+    assert na.check_for_update(u, "0.1.0", lambda r: ("v0.2.0", "0.2.0"), run, state) == "0.2.0"
+    assert len(calls) == 1                                           # not repeated
+    assert na.check_for_update(u, "0.1.0", lambda r: ("v0.3.0", "0.3.0"), run, state) == "0.3.0"
+    assert len(calls) == 2                                           # a newer one is announced
+
+
+def test_no_notice_when_current(tmp_path):
+    from arcount.config import Updates
+    calls = []
+    assert na.check_for_update(Updates(), "0.2.0", lambda r: ("v0.2.0", "0.2.0"),
+                               lambda c, **k: calls.append(c), str(tmp_path / "n")) is None
+    assert calls == []
+
+
+def test_update_loop_retries_after_failure_and_stops():
+    from arcount import github
+    from arcount.config import Updates
+    sleeps, n = [], {"i": 0}
+
+    def check(u):
+        n["i"] += 1
+        if n["i"] == 1:
+            raise github.GithubError("offline")
+        return None
+    u = Updates(interval_hours=24)
+    na.update_loop(u, stop=lambda: n["i"] >= 2, sleep=sleeps.append, check=check)
+    assert sleeps == [na.UPDATE_FIRST_DELAY, na.UPDATE_RETRY, 24 * 3600]
+
+
+def test_updates_config_defaults_and_validation(tmp_path):
+    import pytest
+    from arcount import config
+    assert config.Config().updates.check is True
+    f = tmp_path / "c.toml"
+    f.write_text('[updates]\ncheck = false\nrepo = "x/y"\ninterval_hours = 6\n')
+    c = config.load(f)
+    assert c.updates.check is False and c.updates.repo == "x/y"
+    f.write_text('[updates]\nrepo = "not a repo"\n')
+    with pytest.raises(config.ConfigError):
+        config.load(f)
+    f.write_text('[updates]\ninterval_hours = 0\n')
+    with pytest.raises(config.ConfigError):
+        config.load(f)

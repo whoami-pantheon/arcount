@@ -28,7 +28,8 @@ def make_source(tmp_path, version="9.9.9", name="new"):
 
 def ns(root, source=None, **kw):
     d = dict(root=str(root), source=str(source) if source else None, sha256=None, dry_run=False,
-             force=False, no_restart=False, sock="/nonexistent")
+             force=False, no_restart=False, sock="/nonexistent", check=False, repo=None, tag=None,
+             yes=False)
     d.update(kw)
     return argparse.Namespace(**d)
 
@@ -202,3 +203,73 @@ def test_successful_restart_path(root, tmp_path, capsys):
     assert up.update(src, tmp_path) == 0
     assert ["systemctl", "daemon-reload"] in calls and ["systemctl", "restart", "arcountd"] in calls
     assert "arcountd 9.9.9 is running" in capsys.readouterr().out
+
+
+# ---- GitHub as the source -------------------------------------------------------------
+def fake_github(tmp_path, tag="v9.9.9", content_version="9.9.9"):
+    (tmp_path / "w").mkdir(exist_ok=True)
+    src = make_source(tmp_path, version=content_version, name=f"gh{len(list(tmp_path.glob('gh*')))}")
+    t = tarball(tmp_path, src)
+    seen = {}
+
+    def latest(repo):
+        seen["repo"] = repo
+        return tag, tag.lstrip("v")
+
+    def download(repo, t_, dest):
+        seen["download"] = (repo, t_)
+        shutil.copyfile(t, dest)
+        return dest
+    return latest, download, seen
+
+
+def gh_updater(root, tmp_path, latest, download, **kw):
+    return U.Updater(ns(root, None, **kw), latest=latest, download=download)
+
+
+def test_default_source_is_github_latest_release(root, tmp_path, capsys):
+    latest, download, seen = fake_github(tmp_path)
+    up = gh_updater(root, tmp_path, latest, download)
+    assert up.update(None, tmp_path / "w") == 0
+    assert seen["repo"] == "whoami-pantheon/arcount" and seen["download"] == ("whoami-pantheon/arcount", "v9.9.9")
+    assert U.read_version(root / "opt/arcount/lib/arcount") == "9.9.9"
+    assert "HTTPS to github.com/whoami-pantheon/arcount" in capsys.readouterr().out
+
+
+def test_github_up_to_date_and_check_mode(root, tmp_path, capsys):
+    latest, download, seen = fake_github(tmp_path, tag="v0.1.0", content_version="0.1.0")
+    assert gh_updater(root, tmp_path, latest, download).update(None, tmp_path / "w") == 0
+    assert "nothing to do" in capsys.readouterr().out and "download" not in seen
+    latest, download, seen = fake_github(tmp_path)
+    assert gh_updater(root, tmp_path, latest, download, check=True).update(None, tmp_path / "w") == 0
+    assert "update available: 0.1.0 -> 9.9.9" in capsys.readouterr().out
+    assert "download" not in seen and U.read_version(root / "opt/arcount/lib/arcount") == "0.1.0"
+
+
+def test_github_mislabelled_tag_refused(root, tmp_path):
+    latest, download, _ = fake_github(tmp_path, tag="v9.9.9", content_version="1.0.0")
+    with pytest.raises(U.UpdateError, match="mislabelled"):
+        gh_updater(root, tmp_path, latest, download).update(None, tmp_path / "w")
+    assert U.read_version(root / "opt/arcount/lib/arcount") == "0.1.0"
+
+
+def test_github_errors_become_clean_failures(root, tmp_path):
+    def boom(repo):
+        raise U.github.GithubError("cannot reach GitHub: offline")
+    with pytest.raises(U.UpdateError, match="offline"):
+        gh_updater(root, tmp_path, boom, None).update(None, tmp_path / "w")
+
+
+def test_github_repo_comes_from_config_or_flag(root, tmp_path):
+    (root / "etc/arcount/arcount.toml").write_text('[updates]\nrepo = "me/fork"\n')
+    latest, download, seen = fake_github(tmp_path)
+    gh_updater(root, tmp_path, latest, download, check=True).update(None, tmp_path / "w")
+    assert seen["repo"] == "me/fork"
+    gh_updater(root, tmp_path, latest, download, check=True, repo="other/x").update(None, tmp_path / "w")
+    assert seen["repo"] == "other/x"
+
+
+def test_check_cannot_combine_with_from(root, tmp_path):
+    src = make_source(tmp_path)
+    with pytest.raises(U.UpdateError, match="--check"):
+        U.Updater(ns(root, src, check=True)).update(src, tmp_path)

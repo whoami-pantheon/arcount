@@ -11,6 +11,7 @@ import argparse
 import html
 import json
 import logging
+import os
 import re
 import shutil
 import socket
@@ -19,7 +20,8 @@ import sys
 import threading
 import time
 
-from .config import SEVERITIES, ConfigError, load
+from . import __version__, github
+from .config import SEVERITIES, Config, ConfigError, Updates, load
 
 log = logging.getLogger("arcount-notify")
 DEFAULT_SOCK = "/run/arcount/arcount.sock"
@@ -130,10 +132,62 @@ def run_once(sock_path: str, min_severity: str, notify=show, stop=lambda: False)
                 notify(msg)
 
 
+# ---- update notice ----------------------------------------------------------------------
+UPDATE_FIRST_DELAY = 45           # seconds after login: let the network come up first
+UPDATE_RETRY = 3600               # seconds before retrying after a failed check (offline, rate limit)
+
+
+def _state_file() -> str:
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(base, "arcount", "update-notified")
+
+
+def check_for_update(updates: Updates, current: str = __version__, latest=github.latest_tag,
+                     runner=subprocess.run, state_file: str | None = None) -> str | None:
+    """Notify once per new release. Returns the newer version, or None. Raises GithubError."""
+    state_file = state_file or _state_file()
+    tag, version = latest(updates.repo)
+    if github.version_key(version) <= github.version_key(current):
+        return None
+    try:
+        with open(state_file) as f:
+            if f.read().strip() == version:
+                return version              # already told the user about this one
+    except OSError:
+        pass
+    note = {"severity_name": "low", "title": f"Arcount {version} is available",
+            "message": f"You have {current}. Update with: sudo arcount update  "
+                       f"(release notes: github.com/{updates.repo}/releases). "
+                       f"Turn these notices off with [updates] check = false."}
+    runner(build_command(note), timeout=10, check=False)
+    try:
+        os.makedirs(os.path.dirname(state_file), mode=0o700, exist_ok=True)
+        with open(state_file, "w") as f:
+            f.write(version + "\n")
+    except OSError as e:
+        log.debug("cannot remember notified version: %s", e)
+    return version
+
+
+def update_loop(updates: Updates, stop=lambda: False, sleep=time.sleep, check=check_for_update) -> None:
+    sleep(UPDATE_FIRST_DELAY)
+    while not stop():
+        try:
+            v = check(updates)
+            log.info("update check: %s", f"{v} is available" if v else "up to date")
+            wait = updates.interval_hours * 3600
+        except github.GithubError as e:
+            log.debug("update check failed: %s", e)
+            wait = min(UPDATE_RETRY, updates.interval_hours * 3600)
+        sleep(wait)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="arcount-notify")
     ap.add_argument("--sock", default=DEFAULT_SOCK)
     ap.add_argument("--min-severity", choices=SEVERITIES)
+    ap.add_argument("--no-update-check", action="store_true",
+                    help="do not look for new releases on GitHub (default: config [updates] check)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -141,12 +195,13 @@ def main(argv=None) -> int:
     if not shutil.which("notify-send"):
         log.error("notify-send not found (install libnotify-bin)")
         return 1
-    min_sev = args.min_severity
-    if min_sev is None:
-        try:
-            min_sev = load().agent.min_severity
-        except ConfigError:
-            min_sev = "medium"
+    try:
+        cfg = load()
+    except ConfigError:
+        cfg = Config()
+    min_sev = args.min_severity or cfg.agent.min_severity
+    if cfg.updates.check and not args.no_update_check:
+        threading.Thread(target=update_loop, args=(cfg.updates,), daemon=True).start()
     delay = 1.0
     while True:
         try:

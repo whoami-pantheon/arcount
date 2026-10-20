@@ -207,17 +207,28 @@ the running daemon and every interface, and prints what to do about each problem
 
 ### Upgrading
 ```sh
-git pull                                   # or unpack a newer tarball
-sudo arcount update --from .               # --from also takes a tarball; add --dry-run to just check
+arcount update --check                     # is there a newer release?  (no sudo)
+sudo arcount update                        # fetch the newest release from GitHub and install it
 ```
-It verifies the new code against your config, backs up your history, swaps the program in, restarts
-the service and **rolls back by itself** if the new version does not come up. Your config is never
-changed (new options are listed in `/opt/arcount/lib/arcount/data/arcount.toml.example`). Monitoring
-pauses for a few seconds during the restart. Log out and in (or restart `arcount-notify`) to refresh
-the popup agent. Running `sudo ./packaging/install.sh` again also works.
-Not supported: downgrading across a database change; `update` refuses that rather than corrupt your history.
+It asks before downloading, verifies the new code against your config, backs up your history, swaps
+the program in, restarts the service and **rolls back by itself** if the new version does not come
+up. Your config is never changed (new options are listed in
+`/opt/arcount/lib/arcount/data/arcount.toml.example`). Monitoring pauses for a few seconds during the
+restart. Log out and in (or restart `arcount-notify`) to refresh the popup agent. To install from a
+checkout or tarball you have reviewed instead: `sudo arcount update --from <dir|tarball>`.
+Releases are not signed: you are trusting HTTPS to github.com and the repository owner, as with
+`git pull`. `update` refuses to downgrade across a database change rather than corrupt your history.
 
-**Another machine** — on a machine with the repo: `./packaging/make-dist.sh` builds
+**Update notices.** The desktop agent looks at GitHub's public API about once a day and shows one
+popup per new release. It never installs anything. GitHub sees your IP address and
+`arcount/<version>`; nothing else is sent. Turn it off with:
+```toml
+[updates]
+check = false
+```
+
+### Install on another machine
+On a machine with the repo: `./packaging/make-dist.sh` builds
 `dist/arcount-<version>.tar.gz` and prints its checksum. Copy it over, then:
 ```sh
 sha256sum arcount-*.tar.gz              # compare with the printed value
@@ -226,8 +237,7 @@ sudo ./packaging/install.sh
 ```
 (or just `git clone` there). Each machine keeps its own history.
 
-**Upgrade** — get the new version and run `sudo ./packaging/install.sh` again. Your config and
-history are kept.
+(An install made before `arcount update` existed lacks the command; upgrade it once with `sudo ./packaging/install.sh`.)
 
 **Uninstall** — `sudo arcount setup --uninstall` (history kept) or `--uninstall --purge`
 (everything, including the `arcount` group). Pins are always removed first.
@@ -272,6 +282,11 @@ Contributors and AI agents: see [`AGENTS.md`](AGENTS.md).
 - [`src/arcount/data/arcount.toml.example`](src/arcount/data/arcount.toml.example): every setting
 - [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
+## Author
+- **Name:** Clive Akporube
+- **GitHub:** [whoami-pantheon](https://github.com/whoami-pantheon)
+- **LinkedIn:** [Clive (Kaiser) Akporube](https://linkedin.com/in/clive-kaiser)
+
 ## License
-Apache License 2.0, see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
-Copyright 2026 Clive Akporube ([@whoami-pantheon](https://github.com/whoami-pantheon)).
+Apache License 2.0: see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+Copyright 2026 Clive Akporube.

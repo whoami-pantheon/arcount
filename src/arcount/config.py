@@ -1,6 +1,7 @@
 """Load and validate /etc/arcount/arcount.toml."""
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -83,6 +84,16 @@ class Agent:
 
 
 @dataclass
+class Updates:
+    check: bool = True                      # desktop agent tells you when a newer release exists
+    repo: str = "whoami-pantheon/arcount"   # GitHub "owner/name" to look at
+    interval_hours: float = 24
+
+
+REPO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+
+
+@dataclass
 class Config:
     interfaces: Interfaces = field(default_factory=Interfaces)
     detection: Detection = field(default_factory=Detection)
@@ -90,6 +101,7 @@ class Config:
     response: Response = field(default_factory=Response)
     alerts: Alerts = field(default_factory=Alerts)
     agent: Agent = field(default_factory=Agent)
+    updates: Updates = field(default_factory=Updates)
 
 
 def _fill(obj, data: dict, path: str):
@@ -137,6 +149,10 @@ def validate(cfg: Config) -> None:
     for name, s in sinks[2:]:
         if s.enabled:
             raise ConfigError(f"[{name}] is not implemented in v1; set enabled = false")
+    if not REPO_RE.match(cfg.updates.repo):
+        raise ConfigError("[updates] repo must look like 'owner/name'")
+    if cfg.updates.interval_hours < 1:
+        raise ConfigError("[updates] interval_hours must be at least 1")
     d = cfg.detection
     for key in ("learning_seconds", "conflict_window", "flipflop_window",
                 "unsolicited_threshold", "gratuitous_threshold", "request_match_window"):

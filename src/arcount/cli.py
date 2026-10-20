@@ -468,11 +468,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--user", help="user to add to group arcount (default: $SUDO_USER)")
     p.add_argument("--config", help=argparse.SUPPRESS)
     p.add_argument("--root", help=argparse.SUPPRESS)       # stage into a directory (tests)
-    p = add("update", cmd_update, "upgrade the installed Arcount from a newer checkout/tarball (sudo)")
+    p = add("update", cmd_update, "upgrade Arcount to the newest GitHub release (sudo)")
+    p.add_argument("--check", action="store_true",
+                   help="only report whether a newer release exists (no sudo needed)")
     p.add_argument("--from", dest="source", metavar="DIR|TARBALL",
-                   help="new version: a git checkout or a make-dist tarball "
-                        "(default: the checkout this command is run from)")
-    p.add_argument("--sha256", help="expected checksum of the tarball (or a .sha256 file beside it)")
+                   help="install from a local checkout or make-dist tarball instead of GitHub")
+    p.add_argument("--tag", help="install this release tag (e.g. v0.2.0) instead of the newest")
+    p.add_argument("--repo", help="GitHub owner/name (default: [updates] repo in the config)")
+    p.add_argument("--yes", "-y", action="store_true", help="do not ask before downloading and installing")
+    p.add_argument("--sha256", help="with --from TARBALL: expected checksum (or a .sha256 file beside it)")
     p.add_argument("--dry-run", action="store_true", help="run all checks, change nothing")
     p.add_argument("--force", action="store_true", help="reinstall the same version / allow a downgrade")
     p.add_argument("--no-restart", action="store_true", help="swap files but do not restart the service")

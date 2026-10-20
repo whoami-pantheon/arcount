@@ -42,6 +42,7 @@ class Harness:
         self.srv = ControlServer(self.sel, self.path, self.ops, self.sink, group="no-such-group",
                                  root_uid=root_uid)
         self.run = True
+        self._jobs: list = []
         self.t = threading.Thread(target=self.loop, daemon=True)
         self.t.start()
 
@@ -54,6 +55,14 @@ class Harness:
                 elif kind == "ctl-client":
                     self.srv.on_client(obj, mask)
             self.srv.sweep()
+            while self._jobs:
+                self._jobs.pop(0)()
+
+    def on_server_thread(self, fn):
+        """Run fn in the selector thread, as in the real single-threaded daemon."""
+        done = threading.Event()
+        self._jobs.append(lambda: (fn(), done.set()))
+        assert done.wait(3)
 
     def close(self):
         self.run = False
@@ -118,8 +127,8 @@ def test_subscribe_streams_and_replays_backlog(h):
     assert json.loads(f.readline())["type"] == "subscribed"
     replay = json.loads(f.readline())
     assert replay["title"] == "boot" and replay["replayed"]
-    h.sink.send(Alert(ts=2, rules=["R02"], severity=Severity.HIGH, iface="wlan0", title="live",
-                      message="m"))
+    h.on_server_thread(lambda: h.sink.send(Alert(
+        ts=2, rules=["R02"], severity=Severity.HIGH, iface="wlan0", title="live", message="m")))
     assert json.loads(f.readline())["title"] == "live"
     f.close()                                              # makefile() keeps the fd open otherwise
     s.close()

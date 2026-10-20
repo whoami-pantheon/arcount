@@ -428,13 +428,19 @@ class Session:
         if g.gateway and suspects:
             msg += f" If this is expected: sudo arcount trust {self.profile_id} {suspects[0]}"
         macs = g.macs
+        # Automatic disconnect is off: instead let the user decide, from the popup or the shell.
+        offer = bool(confirmed and g.gateway and ctx.cfg.response.disconnect == "off"
+                     and g.severity >= Severity.HIGH)
+        if offer:
+            msg += (f" You can disconnect {self.iface} from the notification, or run:"
+                    f" nmcli device disconnect {self.iface}")
         alert = Alert(
             ts=ts, rules=g.rules, severity=g.severity, iface=self.iface,
             title=f"{top.title} on {self.profile_name}", message=msg,
             profile_id=self.profile_id, profile_name=self.profile_name, ip=g.ip, macs=macs,
             vendors={m: v for m in macs if (v := ctx.oui.vendor(m))},
             confirmed=confirmed, provisional=all(f.provisional for f in g.findings),
-            details=details, key_macs=suspects)
+            details=details, key_macs=suspects, offer_disconnect=offer)
         merged = ctx.dispatcher.emit(alert)
         self._maybe_respond(merged, g)
 

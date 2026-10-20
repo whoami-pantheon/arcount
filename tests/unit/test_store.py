@@ -111,3 +111,17 @@ def test_readonly_open_without_wal_files_in_unwritable_dir(tmp_path):
         assert ro.list_profiles()
     finally:
         d.chmod(0o755)
+
+
+def test_mac_history_and_gateway_standing(st):
+    pid = mkprofile(st)
+    st.set_gateway_mac(pid, "00:11:22:33:44:01", "trusted", "probe", 100.0)
+    st.see_host(pid, "10.0.0.1", "00:11:22:33:44:01", 100.0)
+    st.see_host(pid, "10.0.0.9", "00:aa:bb:cc:dd:05", 110.0)
+    h = st.mac_history("00:11:22:33:44:01")
+    assert [(r["ip"], r["gateway_state"]) for r in h] == [("10.0.0.1", "trusted")]
+    assert st.mac_history("00:aa:bb:cc:dd:05")[0]["gateway_state"] is None
+    assert st.mac_history("02:00:00:00:00:99") == []
+    g = st.gateway_standing("00:11:22:33:44:01")
+    assert [(r["profile"], r["state"]) for r in g] == [("HomeWifi", "trusted")]
+    assert st.gateway_standing("00:aa:bb:cc:dd:05") == []

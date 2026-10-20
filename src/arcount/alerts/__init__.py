@@ -35,6 +35,7 @@ class Alert:
     ts_last: float = 0.0
     key_macs: list = field(default_factory=list)   # dedup identity (suspects); defaults to macs
     desktop: bool = False                            # show on desktop even below min severity
+    offer_disconnect: bool = False                   # desktop popup adds a 'Disconnect' button
 
     def to_dict(self) -> dict:
         d = asdict(self)

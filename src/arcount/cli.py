@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import re
 import socket
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -13,7 +15,7 @@ from pathlib import Path
 from . import __version__, arp
 from .detector import Severity
 from .netinfo import clean
-from .oui import Oui
+from .oui import Oui, describe_kind, mac_kind
 from .store import Store
 
 DEFAULT_DB = "/var/lib/arcount/arcount.db"
@@ -151,6 +153,49 @@ def cmd_hosts(args) -> int:
     return 0
 
 
+def cmd_mac(args) -> int:
+    """Resolve MAC addresses: vendor, address type, and where this machine has seen them."""
+    oui = Oui()
+    st = None
+    if Path(args.db).exists():
+        try:
+            st = Store(args.db, readonly=True)
+        except Exception:
+            st = None
+    first = True
+    for raw in args.macs:
+        mac = short_mac(raw)
+        if not first:
+            print()
+        first = False
+        print(mac)
+        vendor = oui.vendor(mac)
+        kind = mac_kind(mac)
+        print(f"  vendor    {vendor or '(none found)'}")
+        if not vendor and not kind["local"] and not kind["broadcast"] and not kind["multicast"]:
+            print("            not in the IEEE lists"
+                  + ("" if Path("/usr/share/ieee-data/oui.csv").exists()
+                     else " (install the 'ieee-data' package for vendor names)"))
+        print(f"  type      {describe_kind(kind)}")
+        if st is None:
+            print("  history   (no history database available)")
+            continue
+        seen = st.mac_history(mac)
+        gws = st.gateway_standing(mac)
+        if not seen and not gws:
+            print("  history   never seen on any network this machine has learned")
+            continue
+        for g in gws:
+            print(f"  gateway   {g['state']} on {g['profile']} (last {fmt_ts(g['last_seen'])})")
+        rows = [[h["profile"], h["ip"], fmt_ts(h["first_seen"]), fmt_ts(h["last_seen"]),
+                 h["seen_count"]] for h in seen]
+        if rows:
+            print("  seen on:")
+            print("    " + table(rows, ["NETWORK", "IP", "FIRST SEEN", "LAST SEEN", "COUNT"])
+                  .replace("\n", "\n    "))
+    return 0
+
+
 def cmd_events(args) -> int:
     st = open_store(args, False)
     sev = Severity[args.min_severity.upper()]
@@ -169,6 +214,16 @@ def cmd_events(args) -> int:
     return 0
 
 
+def _macs_with_vendors(macs: list[str]) -> str:
+    oui = Oui()
+    parts = []
+    for m in macs:
+        v = oui.vendor(m)
+        k = mac_kind(m) if len(m) == 17 else {"local": False}
+        parts.append(m + (f" ({v})" if v else " (randomised/virtual)" if k["local"] else ""))
+    return ", ".join(parts) or "-"
+
+
 def cmd_show(args) -> int:
     st = open_store(args, False)
     rows = st.db.execute("SELECT * FROM events WHERE id LIKE ?", (args.event_id + "%",)).fetchall()
@@ -182,7 +237,7 @@ def cmd_show(args) -> int:
           f"{'  (while paused)' if e['paused'] else ''}\n  rules     {', '.join(json.loads(e['rules']))}"
           f"\n  first     {fmt_ts(e['ts'])}\n  last      {fmt_ts(e['last_ts'])}  (x{e['count']})"
           f"\n  iface     {e['iface']}\n  ip        {e['ip'] or '-'}"
-          f"\n  macs      {', '.join(json.loads(e['macs'])) or '-'}\n\n  {e['message']}\n")
+          f"\n  macs      {_macs_with_vendors(json.loads(e['macs']))}\n\n  {e['message']}\n")
     print("  details:", json.dumps(json.loads(e["details"]), indent=2).replace("\n", "\n  "))
     return 0
 
@@ -275,6 +330,54 @@ def cmd_test_alert(args) -> int:
     return 0
 
 
+def cmd_config(args) -> int:
+    from . import config as cfgmod
+    path = Path(args.file or cfgmod.DEFAULT_PATH)
+    if args.action == "path":
+        print(path)
+        return 0
+    if args.action in ("show", "check"):
+        try:
+            cfg = cfgmod.load(path if path.exists() else None)
+        except cfgmod.ConfigError as e:
+            raise CliError(str(e)) from None
+        if args.action == "check":
+            print(f"{path}: valid" if path.exists() else f"{path}: absent, defaults are valid")
+            return 0
+        print(f"# effective settings ({path if path.exists() else 'defaults, no file'})")
+        for sect, val in sorted(dataclasses.asdict(cfg).items()):
+            for key, v in _flatten(sect, val):
+                print(f"{key} = {json.dumps(v)}")
+        return 0
+    # edit
+    if not path.exists():
+        raise CliError(f"{path} does not exist; run `sudo arcount setup` first")
+    editor_cmd = ["sudoedit", str(path)] if os.geteuid() != 0 else \
+        [os.environ.get("VISUAL") or os.environ.get("EDITOR") or "nano", str(path)]
+    if subprocess.run(editor_cmd).returncode != 0:
+        raise CliError("editor exited with an error; nothing changed")
+    try:
+        cfgmod.load(path)
+    except cfgmod.ConfigError as e:
+        print(f"WARNING: the saved file is invalid and arcountd will refuse to start with it:\n"
+              f"  {e}\nRun `arcount config edit` again to fix it.", file=sys.stderr)
+        return 1
+    print("config is valid. Apply it with:  sudo systemctl restart arcountd")
+    if args.restart:
+        cmd = ["systemctl", "restart", "arcountd"]
+        subprocess.run(cmd if os.geteuid() == 0 else ["sudo", *cmd], check=False)
+        print("restarted. Check with: arcount doctor")
+    return 0
+
+
+def _flatten(prefix, val):
+    if isinstance(val, dict):
+        for k, v in val.items():
+            yield from _flatten(f"{prefix}.{k}", v)
+    else:
+        yield prefix, val
+
+
 def cmd_doctor(args) -> int:
     from . import doctor
     return doctor.run(args)
@@ -327,6 +430,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--minutes", type=float, default=60)
     add("resume", cmd_resume, "end a pause (sudo)")
     add("test-alert", cmd_test_alert, "send a test alert through all sinks")
+    p = add("mac", cmd_mac, "look up MAC addresses: vendor, type, and where they were seen")
+    p.add_argument("macs", nargs="+", metavar="MAC")
+    p = add("config", cmd_config, "show, check or edit the configuration")
+    p.add_argument("action", choices=["show", "check", "edit", "path"], nargs="?", default="show")
+    p.add_argument("--restart", action="store_true", help="with edit: restart arcountd afterwards")
+    p.add_argument("--file", help=argparse.SUPPRESS)
     p = add("doctor", cmd_doctor, "diagnose the installation and say how to fix problems")
     p.add_argument("--alert", action="store_true", help="also send a test alert")
     p.add_argument("--config", help="config file to validate (default /etc/arcount/arcount.toml)")

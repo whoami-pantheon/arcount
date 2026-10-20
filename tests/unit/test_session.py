@@ -309,3 +309,26 @@ def test_manager_include_overrides_exclude(tmp_path):
     lan = Lan(tmp_path, cfg)
     m = SessionManager(lan.ctx, lambda s: None, lambda s: None)
     assert m.wanted("docker0") and not m.wanted("wlan0")
+
+
+def test_confirmed_attack_offers_disconnect_when_response_is_off(tmp_path):
+    lan, s = trusted_lan(tmp_path)                       # disconnect = "off" (default)
+    attack(lan, s)
+    a = lan.alerts[-1]
+    assert a.confirmed and a.offer_disconnect
+    assert "nmcli device disconnect wlan0" in a.message
+    assert ["nmcli", "device", "disconnect", "wlan0"] not in lan.cmds    # offered, never done
+
+
+def test_no_offer_when_auto_disconnect_is_on_or_unconfirmed(tmp_path):
+    cfg = Config()
+    cfg.response.disconnect = "confirmed_critical"
+    lan, s = trusted_lan(tmp_path, cfg)
+    attack(lan, s)
+    assert not any(a.offer_disconnect for a in lan.alerts)
+    (tmp_path / "b").mkdir()
+    lan2, s2 = trusted_lan(tmp_path / "b")
+    lan2.cap.inject(EVIL, GW_IP, eth_dst="ff:ff:ff:ff:ff:ff")
+    lan2.run(s2, 2)                                      # real gateway alone answers: unconfirmed
+    assert lan2.alerts and not lan2.alerts[-1].confirmed
+    assert not any(a.offer_disconnect for a in lan2.alerts)

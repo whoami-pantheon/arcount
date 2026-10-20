@@ -133,3 +133,48 @@ def test_parse_duration():
     assert cli.parse_duration("1.5d") == 129600
     with pytest.raises(cli.CliError):
         cli.parse_duration("-5m")
+
+
+def test_mac_command(capsys, env):
+    rc, out, _ = run(capsys, env, "mac", "00:11:22:33:44:01", "02:aa:bb:cc:dd:ee", "ff:ff:ff:ff:ff:ff")
+    assert rc == 0
+    assert "locally administered" in out and "broadcast address" in out
+    assert "HomeWifi" in out and "trusted" in out                  # history of the gateway MAC
+    rc, out, _ = run(capsys, env, "mac", "00:de:ad:be:ef:77")
+    assert "never seen" in out
+
+
+def test_mac_bad_input_is_clean_error(capsys, env):
+    rc, _, err = run(capsys, env, "mac", "zz")
+    assert rc != 0 and "Traceback" not in err
+
+
+def test_config_path_show_check(capsys, tmp_path, env):
+    f = tmp_path / "arcount.toml"
+    f.write_text("[detection]\nlearning_seconds = 300\n")
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "path")
+    assert out.strip() == str(f)
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "show")
+    assert 'detection.learning_seconds = 300' in out and 'response.disconnect = "off"' in out
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "check")
+    assert rc == 0 and "valid" in out
+    f.write_text("[detection]\nlearning_seconds = \"x\"\n[nope]\n")
+    rc, _, err = run(capsys, env, "config", "--file", str(f), "check")
+    assert rc != 0
+
+
+def test_config_edit(capsys, tmp_path, env, monkeypatch):
+    import subprocess
+    f = tmp_path / "arcount.toml"
+    f.write_text("[detection]\nlearning_seconds = 120\n")
+    calls = []
+
+    class R:
+        returncode = 0
+    monkeypatch.setattr(cli.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: calls.append(cmd) or R())
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "edit", "--restart")
+    assert rc == 0 and calls[0] == ["sudoedit", str(f)]
+    assert calls[1] == ["sudo", "systemctl", "restart", "arcountd"]
+    rc, _, err = run(capsys, env, "config", "--file", str(tmp_path / "missing.toml"), "edit")
+    assert rc != 0 and "arcount setup" in err

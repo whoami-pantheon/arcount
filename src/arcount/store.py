@@ -259,6 +259,21 @@ class Store:
         args.append(limit)
         return self.db.execute(q, args).fetchall()
 
+    def mac_history(self, mac: str) -> list[sqlite3.Row]:
+        """Every network this MAC has been seen on: IPs, times, and gateway standing."""
+        return self.db.execute(
+            """SELECT p.id AS profile_id, p.name AS profile, h.ip, h.first_seen, h.last_seen,
+                      h.seen_count, g.state AS gateway_state
+               FROM hosts h JOIN profiles p ON p.id=h.profile_id
+               LEFT JOIN gateway_macs g ON g.profile_id=h.profile_id AND g.mac=h.mac
+               WHERE h.mac=? ORDER BY h.last_seen DESC""", (mac,)).fetchall()
+
+    def gateway_standing(self, mac: str) -> list[sqlite3.Row]:
+        return self.db.execute(
+            """SELECT p.name AS profile, g.state, g.source, g.last_seen
+               FROM gateway_macs g JOIN profiles p ON p.id=g.profile_id WHERE g.mac=?""",
+            (mac,)).fetchall()
+
     # ---- pins -----------------------------------------------------------
     def add_pin(self, iface, ip, mac, now, run_id) -> None:
         self.db.execute("INSERT OR REPLACE INTO pins VALUES(?,?,?,?,?)",

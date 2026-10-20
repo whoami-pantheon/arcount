@@ -58,6 +58,8 @@ arcount events                     # alerts from the last 24 h   (--since 7d --m
 arcount show <event-id>            # full details of one alert
 arcount networks                   # every network learned so far
 arcount hosts "<network name>"     # devices seen on a network
+arcount mac <mac>...               # who made this device? plus where this laptop has seen it
+arcount config show|check|path    # effective settings / validate the file / where it lives
 arcount doctor                     # diagnose problems     (--alert also sends a test popup)
 ```
 Commands that **change** things need `sudo`:
@@ -126,7 +128,13 @@ recorded (flagged `paused`) but nothing alerts and no response fires.
 
 Config file: `/etc/arcount/arcount.toml` (created by setup, never overwritten on upgrade). Every
 option is documented in [`src/arcount/data/arcount.toml.example`](src/arcount/data/arcount.toml.example).
-After editing: `sudo systemctl restart arcountd`, then `arcount doctor`.
+
+To change it:
+```sh
+sudo arcount config edit --restart   # opens the file, validates it on save, restarts the service
+arcount config show                  # the settings actually in effect
+```
+(or edit the file by hand, then `sudo systemctl restart arcountd` and `arcount doctor`.)
 
 ### Choose which interfaces are watched
 By default every up Ethernet-type interface is watched except virtual ones (docker, veth, VPN
@@ -135,7 +143,19 @@ tunnels). To watch only Wi-Fi:
 [interfaces]
 include = ["wlan0"]
 ```
-`arcount doctor` lists every interface and why it is or isn't being watched.
+`arcount doctor` lists every interface and why it is or isn't being watched. Several interfaces
+are watched **at the same time** (e.g. Wi-Fi and Ethernet), each with its own state and trust.
+
+### Disconnect offer
+With `disconnect = "off"` (the default) a **confirmed** attack on your gateway still produces a
+popup with **Disconnect** and **Stay connected** buttons. Nothing happens unless you click
+Disconnect (it runs `nmcli device disconnect <iface>` as you). Set `disconnect` to
+`confirmed_high` / `confirmed_critical` to do it automatically instead.
+
+### MAC lookup
+`arcount mac 00:11:22:33:44:55` names the manufacturer (offline, from the `ieee-data` package),
+says whether the address is randomised/locally administered, and lists the networks where this
+laptop has seen it. `arcount hosts` and `arcount show` include vendor names too.
 
 ### Learning time
 ```toml

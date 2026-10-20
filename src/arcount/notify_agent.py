@@ -1,7 +1,9 @@
 """arcount-notify: per-user desktop notification agent.
 
 Runs in the logged-in user's session, subscribes to the daemon's control socket and
-shows alerts with notify-send. It never performs privileged actions.
+shows alerts with notify-send. It holds no privileges of its own. The one action it can take is
+the user's own choice on a popup: "Disconnect", which runs `nmcli device disconnect <iface>` as
+the user (NetworkManager's policy decides whether that is permitted).
 """
 from __future__ import annotations
 
@@ -9,10 +11,12 @@ import argparse
 import html
 import json
 import logging
+import re
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 from .config import SEVERITIES, ConfigError, load
@@ -35,7 +39,21 @@ def should_show(alert: dict, min_severity: str) -> bool:
     return alert.get("desktop") or sev_rank(alert.get("severity_name", "info")) >= sev_rank(min_severity)
 
 
-def build_command(alert: dict) -> list[str]:
+IFACE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}$")      # never starts with "-" (option injection)
+OFFER_MAX_AGE = 600          # seconds: never offer to disconnect over a stale alert
+
+
+def can_offer_disconnect(alert: dict, now: float | None = None) -> bool:
+    """Only for a fresh, live, confirmed alert whose interface name is plain."""
+    if not alert.get("offer_disconnect") or alert.get("replayed"):
+        return False
+    if not IFACE_RE.match(str(alert.get("iface", ""))):
+        return False
+    age = (now if now is not None else time.time()) - float(alert.get("ts", 0) or 0)
+    return age <= OFFER_MAX_AGE
+
+
+def build_command(alert: dict, offer: bool = False) -> list[str]:
     """notify-send argv. Title/body contain network-controlled text (SSIDs, hostnames) and
     notification servers render markup, so everything is HTML-escaped."""
     urgency, icon = STYLE.get(alert.get("severity_name", "info"), STYLE["medium"])
@@ -43,16 +61,55 @@ def build_command(alert: dict) -> list[str]:
     body = html.escape(str(alert.get("message", "")))[:MAX_BODY]
     if alert.get("confirmed"):
         title = "CONFIRMED: " + title
-    return ["notify-send", "-a", "Arcount", "-u", urgency, "-i", icon, title, body]
+    cmd = ["notify-send", "-a", "Arcount", "-u", urgency, "-i", icon]
+    if offer:
+        # --action implies --wait: the process stays alive until the popup is answered or closed
+        cmd += ["-t", "0", "-A", f"disconnect=Disconnect {alert['iface']}", "-A", "keep=Stay connected"]
+    return cmd + [title, body]
 
 
-def show(alert: dict, runner=subprocess.run) -> bool:
+def show(alert: dict, runner=subprocess.run, threaded: bool = True) -> bool:
+    if can_offer_disconnect(alert):
+        if threaded:        # waiting for the click must not stall the alert stream
+            threading.Thread(target=offer_disconnect, args=(alert, runner), daemon=True).start()
+            return True
+        return offer_disconnect(alert, runner)
     try:
         runner(build_command(alert), timeout=10, check=False)
         return True
     except (OSError, subprocess.TimeoutExpired) as e:
         log.error("notify-send failed: %s", e)
         return False
+
+
+def offer_disconnect(alert: dict, runner=subprocess.run) -> bool:
+    """Show the popup with Disconnect / Stay connected; act only on an explicit Disconnect."""
+    iface = alert["iface"]
+    try:
+        r = runner(build_command(alert, offer=True), capture_output=True, text=True,
+                   timeout=OFFER_MAX_AGE, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log.error("notify-send failed: %s", e)
+        return False
+    if (getattr(r, "stdout", "") or "").strip() != "disconnect":
+        return True
+    log.warning("user chose to disconnect %s", iface)
+    try:
+        d = runner(["nmcli", "device", "disconnect", iface], capture_output=True, text=True,
+                   timeout=20, check=False)
+        ok = d.returncode == 0
+        detail = (d.stderr or d.stdout or "").strip()
+    except (OSError, subprocess.TimeoutExpired) as e:
+        ok, detail = False, str(e)
+    note = {"severity_name": "high" if ok else "critical", "iface": iface}
+    note["title"] = f"Disconnected {iface}" if ok else f"Could not disconnect {iface}"
+    note["message"] = ("Reconnect from the network menu when you are on a trusted network." if ok
+                       else f"{detail}. Run: sudo nmcli device disconnect {iface}")
+    try:
+        runner(build_command(note), timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return ok
 
 
 def run_once(sock_path: str, min_severity: str, notify=show, stop=lambda: False) -> None:

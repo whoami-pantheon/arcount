@@ -1,5 +1,6 @@
 # Arcount configuration  (/etc/arcount/arcount.toml)
-# After editing:  sudo systemctl restart arcountd      Check it:  arcount doctor
+# Edit and apply:  sudo arcount config edit --restart      (validates on save)
+# Or by hand:      sudo systemctl restart arcountd          Check it:  arcount doctor
 # Every value below is the default; delete anything you do not want to change.
 
 # --- Which network interfaces to watch ----------------------------------------------------

@@ -80,6 +80,16 @@ check failed. Same as `arcount setup --check`.
 | `path` | print the config file path |
 | `--restart` | with `edit`: restart `arcountd` afterwards |
 
+Typical use:
+```sh
+sudo arcount config edit --restart   # edit, validate on save, restart arcountd to apply
+arcount config show                  # confirm what is now in effect
+arcount config check                 # validate without changing anything
+```
+`edit` works with or without `sudo` in front (as a normal user it uses `sudoedit`, which asks for
+your password itself). If the saved file is invalid it warns you and does **not** restart, because
+`arcountd` refuses to start with a broken config; run `edit` again to fix it.
+
 Keys are listed in [`arcount.toml.example`](../src/arcount/data/arcount.toml.example).
 
 ---

@@ -102,6 +102,8 @@ class Session:
         self._ident_next = 0.0
         self._learn_end = 0.0
         self._learn_incidents = 0
+        self.frames = 0                 # frames received from others (diagnostics only)
+        self.last_frame: float | None = None
         self._housekeeping_at = 0.0
         self._pin_check_at = 0.0
         self._replaced_since: float | None = None
@@ -164,6 +166,9 @@ class Session:
         if self.cap is None:
             return
         for f in self.cap.read():
+            if not f.outgoing:
+                self.frames += 1
+                self.last_frame = self.ctx.clock.wall()
             if self.probes:
                 self.probes.on_frame(f)
             if self.state in (State.IDENTIFYING, State.PROBING):
@@ -519,7 +524,12 @@ class Session:
         return {"iface": self.iface, "state": self.state.value, "profile_id": self.profile_id,
                 "profile": self.profile_name,
                 "gateway_ip": self.sig.gateway_ip if self.sig else None,
-                "gateway_macs": macs, "pinned": self.pinned_mac, "site": self.site}
+                "gateway_macs": macs, "pinned": self.pinned_mac, "site": self.site,
+                "frames": self.frames,
+                "last_frame_age": (round(self.ctx.clock.wall() - self.last_frame, 1)
+                                   if self.last_frame else None),
+                "learn_left": (max(0, round(self._learn_end - self.ctx.clock.monotonic()))
+                               if self.state == State.LEARNING else None)}
 
 
 class SessionManager:

@@ -1,38 +1,70 @@
+# Arcount configuration  (/etc/arcount/arcount.toml)
+# After editing:  sudo systemctl restart arcountd      Check it:  arcount doctor
+# Every value below is the default; delete anything you do not want to change.
+
+# --- Which network interfaces to watch ----------------------------------------------------
 [interfaces]
-include = []                                   # empty = all eligible
+# Watch ONLY these interfaces (shell-style patterns). Empty = watch every eligible interface
+# (an up, Ethernet-type link) except those matching "exclude".
+#   include = ["wlan0"]            # Wi-Fi only
+#   include = ["wlan*", "eth*"]
+include = []
+# Ignored when "include" is set. These are virtual interfaces that are not real LANs.
 exclude = ["docker*", "br-*", "veth*", "virbr*", "vmnet*", "tun*", "tap*"]
 
+# --- Detection tuning ---------------------------------------------------------------------
 [detection]
+# How long a NEW network is observed before its gateway MAC is trusted. Applies only the first
+# time you join a network; known networks go straight to full monitoring. During learning most
+# alerts are capped at "medium" (a conflict such as two devices answering for the gateway is
+# still reported at full severity), and if anything suspicious happens the gateway is NOT
+# trusted. Longer = a bigger window to catch an intermittent attacker before trusting, but a
+# longer period of reduced alerting. 120 is a good default; 300 suits home/office networks.
 learning_seconds = 120
-conflict_window = 30
-flipflop_window = 600
-unsolicited_threshold = 5
-gratuitous_threshold = 20
-request_match_window = 5
-ether_mismatch_allow = []                      # MACs of known MAC-NAT extenders
+conflict_window = 30             # seconds: two MACs claiming one IP within this window = conflict
+flipflop_window = 600            # seconds: an IP alternating between MACs within this = flip-flop
+unsolicited_threshold = 5        # unsolicited ARP replies per minute from one MAC before alerting
+gratuitous_threshold = 20        # gratuitous ARPs per minute before alerting
+request_match_window = 5         # seconds a reply may arrive after our request to count as solicited
+ether_mismatch_allow = []        # MACs of known MAC-rewriting repeaters/extenders, e.g. ["aa:bb:cc:dd:ee:ff"]
 
+# --- How long history is kept -------------------------------------------------------------
 [storage]
-host_ttl_days = 90
-event_ttl_days = 180
+host_ttl_days = 90               # forget hosts not seen for this long
+event_ttl_days = 180             # forget old alerts after this long
 
+# --- Active responses (both OFF by default; they change your system's behaviour) ----------
 [response]
-pin_gateway = "off"                            # "off" | "trusted"
-disconnect = "off"                             # "off" | "confirmed_critical" | "confirmed_high"
+# "trusted": pin the trusted gateway's MAC in the kernel's ARP table (a permanent entry) so
+#            forged replies cannot change where this laptop sends its traffic. Removed again
+#            when the interface goes down or the service stops. It only protects traffic
+#            leaving THIS machine. If you replace your router, expect an alert and re-trust.
+# "off":     only detect and alert.
+pin_gateway = "off"
+# What to do on a CONFIRMED attack on the gateway:
+#   "off"                 nothing
+#   "confirmed_high"      disconnect the interface via NetworkManager (once per connection).
+#                         Use this on wired links: ARP attacks there rate "high", not "critical".
+#   "confirmed_critical"  same, but only for critical findings (Wi-Fi, or a gateway MAC you rejected)
+# Downside: a false positive costs you your connection, and anyone who can fake the evidence
+# can force a disconnect. Consider it for public Wi-Fi.
+disconnect = "off"
 disconnect_during_learning = false
 
-[alerts.journal]
+# --- Where alerts go (minimum severity: info < low < medium < high < critical) -------------
+[alerts.journal]                 # systemd journal:  journalctl -u arcountd
 min_severity = "info"
 
-[alerts.socket]
+[alerts.socket]                  # live feed used by the desktop notifier
 min_severity = "low"
 
-[alerts.ntfy]                                  # seam - not implemented in v1
+[alerts.ntfy]                    # phone notifications - planned, not implemented yet
 enabled = false
 server = "https://ntfy.sh"
 topic_file = "/etc/arcount/secrets.toml"
 min_severity = "high"
 
-[alerts.email]                                 # seam - not implemented in v1
+[alerts.email]                   # email - planned, not implemented yet
 enabled = false
 smtp_host = ""
 smtp_port = 587
@@ -41,5 +73,5 @@ to = []
 credentials_file = "/etc/arcount/secrets.toml"
 min_severity = "high"
 
-[agent]
+[agent]                          # the per-user desktop popup agent (arcount-notify)
 min_severity = "medium"

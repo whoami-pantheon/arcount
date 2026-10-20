@@ -128,3 +128,19 @@ def test_subscribe_streams_and_replays_backlog(h):
             break
         threading.Event().wait(0.05)
     assert h.sink.clients == []
+
+
+def test_socket_falls_back_to_owner_only_when_chown_fails(tmp_path, monkeypatch):
+    import os
+    import selectors
+    from arcount import control
+
+    def boom(*a, **k):
+        raise OSError(22, "Invalid argument")        # e.g. gid not mapped in a user namespace
+    monkeypatch.setattr(os, "chown", boom)
+    sel = selectors.DefaultSelector()
+    srv = control.ControlServer(sel, str(tmp_path / "c.sock"), object(), None, group="root")
+    try:
+        assert (tmp_path / "c.sock").stat().st_mode & 0o777 == 0o600
+    finally:
+        srv.close()

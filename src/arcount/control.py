@@ -67,8 +67,8 @@ class ControlServer:
         try:
             os.chown(path, -1, grp.getgrnam(group).gr_gid)
             os.chmod(path, 0o660)
-        except (KeyError, PermissionError):
-            os.chmod(path, 0o600)               # no such group: owner only
+        except (KeyError, OSError):             # no such group, or not mappable (container/userns)
+            os.chmod(path, 0o600)               # owner only
         self.srv.listen(8)
         self.srv.setblocking(False)
         sel.register(self.srv, selectors.EVENT_READ, ("ctl-listen", self))

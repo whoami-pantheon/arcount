@@ -1,8 +1,8 @@
-# Arcount — Implementation Plan
+# Arcount — Design
 
 ARP attack detection for a roaming Linux laptop. arpwatch-style history, but scoped per *network* rather than per interface, with active verification, desktop alerts and opt-in automatic response.
 
-Status: **awaiting approval**. Target machine: this Kali laptop (Python 3.13, iproute2 6.18, systemd 260, NetworkManager, XFCE on X11).
+Status: **implemented in v0.1** (this document is the original design; the code is authoritative where they differ). Developed and tested on a Kali laptop (Python 3.13, iproute2 6.18, systemd 260, NetworkManager, XFCE on X11).
 
 ---
 
@@ -60,7 +60,7 @@ Fix:
 Arcount/
   pyproject.toml              # name=arcount, requires-python>=3.13, no runtime deps; pytest config
   README.md
-  PLAN.md                     # this file
+  docs/DESIGN.md              # this file
   docs/ROADMAP.md             # §11 copied here verbatim during M8
   src/arcount/
     __init__.py               # __version__
@@ -244,7 +244,7 @@ A profile can hold several trusted gateway MACs, e.g. a chain SSID across sites 
 
 - `socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP=0x0806))`, `bind((ifname, ETH_P_ARP))`, non-blocking, registered in the selector.
 - `recvfrom` returns `(ifname, proto, pkttype, hatype, addr)`. pkttype values: 0 HOST, 1 BROADCAST, 2 MULTICAST, 3 OTHERHOST, 4 **OUTGOING**.
-- **OUTGOING frames are never fed into detection rules.** They are only recorded as "requests we sent" (target_ip → time) for the unsolicited-reply rule. This also means the user's own arpspoof/bettercap runs don't trip rules on this host (see `arcount pause` for the rest).
+- **OUTGOING frames are never fed into detection rules.** They are only recorded as "requests we sent" (target_ip → time) for the unsolicited-reply rule. This also means the owner's own arpspoof/bettercap runs don't trip rules on this host (see `arcount pause` for the rest).
 - Parse: Ethernet `dst(6) src(6) type(2)`; ARP `htype(2)=1 ptype(2)=0x0800 hlen(1)=6 plen(1)=4 op(2) sha(6) spa(4) tha(6) tpa(4)`. Ignore anything else (wrong lengths, VLAN tags, non-IPv4). Frames may be padded to 60 bytes.
 - `send_request(target_ip)`: broadcast Ethernet, op=1, sha/spa = our MAC/IP, tha = 00:00:00:00:00:00.
 - `Frame` dataclass: `ts, iface, pkttype, eth_src, eth_dst, op, sha, spa, tha, tpa` plus derived properties `is_gratuitous` (spa==tpa), `is_probe` (spa==0.0.0.0), `is_reply`.
@@ -382,7 +382,7 @@ disconnect  = "off"          # "off" | "confirmed_critical" | "confirmed_high"
 - Never during LEARNING unless `disconnect_during_learning = true`.
 
 ### Pause
-`sudo arcount pause [--minutes 60]` exists because the user runs offensive tools from this laptop.
+`sudo arcount pause [--minutes 60]` exists because the owner may run offensive tools from the same machine.
 - While paused: responses are off, notifications are off, and pins are left as they are.
 - Journal logging continues, and events are stored with `paused=1`.
 - `arcount resume` ends it early.

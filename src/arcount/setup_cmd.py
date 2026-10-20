@@ -36,6 +36,7 @@ class SetupError(Exception):
 class Out:
     def __init__(self):
         self.problems = 0
+        self.warnings = 0
 
     def ok(self, msg):
         print(f"  ok    {msg}")
@@ -44,6 +45,7 @@ class Out:
         print(f"  --    {msg}")
 
     def warn(self, msg):
+        self.warnings += 1
         print(f"  WARN  {msg}")
 
     def fail(self, msg):
@@ -215,42 +217,9 @@ Check any time with: arcount setup --check""")
 
 
 def check(args) -> int:
-    out = Out()
-    print("Preflight")
-    preflight(out)
-    print("\nInstallation")
-    for label, path in (("package", Path(PREFIX, "lib/arcount")), ("launcher", Path(PREFIX, "bin/arcountd")),
-                        ("config", Path("/etc/arcount/arcount.toml")),
-                        ("systemd unit", Path("/etc/systemd/system/arcountd.service")),
-                        ("desktop autostart", Path("/etc/xdg/autostart/arcount-notify.desktop"))):
-        (out.ok if path.exists() else out.warn)(f"{label}: {path}" + ("" if path.exists() else " (missing)"))
-    if shutil.which("systemctl"):
-        for what in ("is-enabled", "is-active"):
-            r = _run(["systemctl", what, "arcountd"], check=False)
-            state = (r.stdout or "unknown").strip()
-            (out.ok if r.returncode == 0 else out.warn)(f"service {what}: {state}")
-    try:
-        g = grp.getgrnam(GROUP)
-        me = pwd.getpwuid(os.getuid()).pw_name
-        in_db = me in g.gr_mem or os.getgid() == g.gr_gid
-        in_session = g.gr_gid in os.getgroups()
-        if in_session:
-            out.ok(f"{me} is in group {GROUP}")
-        elif in_db:
-            out.warn(f"{me} was added to {GROUP} but this login session predates it: log out and in")
-        else:
-            out.warn(f"{me} is not in group {GROUP}: sudo usermod -aG {GROUP} {me}")
-    except KeyError:
-        out.warn(f"group {GROUP} does not exist yet")
-    from .cli import ctl
-    try:
-        r = ctl(args.sock, {"cmd": "status"}, timeout=2)
-        n = len(r.get("sessions", [])) if r.get("ok") else 0
-        out.ok(f"daemon answers on {args.sock} ({n} interface session(s))") if r.get("ok") \
-            else out.warn(f"daemon replied: {r.get('error')}")
-    except Exception as e:
-        out.warn(f"daemon socket not reachable: {e}")
-    return 1 if out.problems else 0
+    from . import doctor
+    args.alert = False
+    return doctor.run(args)
 
 
 def uninstall(args) -> int:

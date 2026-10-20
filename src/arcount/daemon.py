@@ -86,6 +86,7 @@ class Daemon:
         self._wake_r.setblocking(False)
         self._wake_w.setblocking(False)
         self.sel.register(self._wake_r, selectors.EVENT_READ, ("wake", None))
+        self._started = self.clock.wall()
         self._last_watchdog = self._last_prune = self._last_gc = self.clock.monotonic()
 
     # ---- control-socket operations ---------------------------------------------------
@@ -93,7 +94,11 @@ class Daemon:
         return self.clock.wall() < self.paused_until
 
     def status(self) -> dict:
-        return {"version": __version__, "run_id": self.run_id,
+        return {"version": __version__, "run_id": self.run_id, "pid": os.getpid(),
+                "uptime": round(self.clock.wall() - self._started),
+                "config": str(self.config_path) if self.config_path else None,
+                "learning_seconds": self.cfg.detection.learning_seconds,
+                "agents": len(self.socket_sink.clients) if self.socket_sink else 0,
                 "paused_until": self.paused_until if self.is_paused() else None,
                 "response": {"pin_gateway": self.cfg.response.pin_gateway,
                              "disconnect": self.cfg.response.disconnect},

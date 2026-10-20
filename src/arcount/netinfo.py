@@ -12,6 +12,12 @@ import subprocess
 from dataclasses import dataclass, field
 
 
+def clean(text: str, limit: int = 64) -> str:
+    """Neutralise attacker-controlled strings (SSIDs, connection names, hostnames):
+    no control/escape characters, bounded length."""
+    return "".join(ch if ch.isprintable() else "?" for ch in text)[:limit]
+
+
 def run_cmd(cmd: list[str], timeout: float = 5.0) -> str | None:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
@@ -172,7 +178,7 @@ def gather(iface: str, run=run_cmd, use_nm: bool = True) -> NetworkSignals:
         run(["nmcli", "-t", "-f", "UUID,NAME,TYPE,DEVICE", "connection", "show", "--active"]) or "")
     conn = next((c for c in active if c["device"] == iface), None)
     if conn:
-        s.nm_uuid, s.nm_name = conn["uuid"], conn["name"]
+        s.nm_uuid, s.nm_name = conn["uuid"], clean(conn["name"])
         if conn["type"] == "802-11-wireless":
             s.kind = "wifi"
     if s.kind == "wifi":
@@ -181,10 +187,10 @@ def gather(iface: str, run=run_cmd, use_nm: bool = True) -> NetworkSignals:
             bssid, ssid = parse_nmcli_wifi_active(run(
                 ["nmcli", "-t", "-f", "ACTIVE,BSSID,SSID", "dev", "wifi", "list", "ifname",
                  iface, "--rescan", "no"]) or "")
-        s.bssid, s.ssid = bssid, ssid
+        s.bssid, s.ssid = bssid, clean(ssid)
     dhcp = parse_nmcli_dhcp(run(["nmcli", "-t", "-f", "DHCP4", "device", "show", iface]) or "")
     s.dhcp_server_id = dhcp.get("dhcp_server_identifier", "")
-    s.domain_name = dhcp.get("domain_name", "")
+    s.domain_name = clean(dhcp.get("domain_name", ""))
     if not s.nm_uuid:
         s.nm_uuid = f"static:{iface}"
     return s

@@ -33,6 +33,8 @@ class Alert:
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     count: int = 1
     ts_last: float = 0.0
+    key_macs: list = field(default_factory=list)   # dedup identity (suspects); defaults to macs
+    desktop: bool = False                            # show on desktop even below min severity
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -43,7 +45,7 @@ class Alert:
 
     @property
     def key(self) -> tuple:
-        return (self.profile_id, self.ip, frozenset(self.macs))
+        return (self.profile_id, self.ip, frozenset(self.key_macs or self.macs))
 
 
 class Dispatcher:
@@ -79,9 +81,9 @@ class Dispatcher:
         prev.confirmed = prev.confirmed or new.confirmed
         prev.provisional = prev.provisional and new.provisional
         prev.ts_last = now
+        prev.details = {**prev.details, **new.details}
         if escalated:
             prev.title, prev.message = new.title, new.message
-            prev.details = {**prev.details, **new.details}
         self.store.update_event(prev.id, count=prev.count, last_ts=now, severity=int(prev.severity),
                                 rules=prev.rules, confirmed=int(prev.confirmed),
                                 provisional=int(prev.provisional), title=prev.title,
@@ -92,7 +94,7 @@ class Dispatcher:
 
     def _fan_out(self, alert: Alert, paused: bool) -> None:
         for s in self.sinks:
-            if alert.severity < s.min_severity:
+            if alert.severity < s.min_severity and not (alert.desktop and s.name == "socket"):
                 continue
             if paused and s.name != "journal":
                 continue                       # journal keeps logging while paused

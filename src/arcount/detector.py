@@ -52,6 +52,7 @@ class Detector:
         self.gateway_ip = gateway_ip
         self.kind, self.site = kind, site
         self.learning = False
+        self.autolearn = True         # session clears this when the gateway is ambiguous
         self.gw_macs: dict[str, str] = {}                 # mac -> state
         self.hosts: dict[str, dict[str, float]] = {}      # ip -> {mac: last_seen}
         self.learned: list[tuple[str, str]] = []          # (mac, state) for the session to persist
@@ -75,13 +76,13 @@ class Detector:
         return out
 
     # ---- helpers --------------------------------------------------------------
-    def _known_gw(self) -> set[str]:
+    def known_gw(self) -> set[str]:
         return {m for m, s in self.gw_macs.items() if s in KNOWN_STATES}
 
     def _trusted_gw(self) -> set[str]:
         return {m for m, s in self.gw_macs.items() if s in TRUSTED_STATES}
 
-    def _finish(self, f: Finding) -> Finding:
+    def finish(self, f: Finding) -> Finding:
         if self.learning:
             f.provisional = True
             if f.rule not in FULL_SEVERITY_IN_LEARNING and not f.uncapped \
@@ -114,7 +115,7 @@ class Detector:
             out.append(Finding("R06", Severity.LOW, "ARP with all-zero sender MAC",
                                f"ARP sender MAC is 00:00:00:00:00:00 (claims {f.spa}).",
                                f.spa, [f.sha]))
-        in_subnet = f.is_probe or self._in_subnet(f.spa)
+        in_subnet = f.is_probe or self.in_subnet(f.spa)
         if sha_ok and not in_subnet:
             out.append(Finding("R06", Severity.LOW, "ARP sender outside local subnet",
                                f"{f.sha} claims {f.spa}, which is outside {self.net}.",
@@ -128,7 +129,7 @@ class Detector:
                                f"(claims {f.spa}).", f.spa, [f.eth_src, f.sha]))
 
         if not sha_ok:
-            return [self._finish(x) for x in out]
+            return [self.finish(x) for x in out]
 
         # R04 probes for our own address
         if f.is_probe:
@@ -137,34 +138,34 @@ class Detector:
                                    f"{f.sha} is probing for our address {self.our_ip}.",
                                    self.our_ip, [f.sha]))
             self._flood(f, out)
-            return [self._finish(x) for x in out]
+            return [self.finish(x) for x in out]
 
         if in_subnet:
             out.extend(self._claim(f))
         self._flood(f, out)
-        return [self._finish(x) for x in out]
+        return [self.finish(x) for x in out]
 
     def feed_neigh(self, ip: str, mac: str, now: float) -> list[Finding]:
         """Kernel neighbour table entry changed. Only the gateway is judged."""
         mac = mac.lower()
         if ip != self.gateway_ip or mac == self.our_mac:
             return []
-        known = self._known_gw()
+        known = self.known_gw()
         if mac in known or not known:
             return []
-        f = self._gateway_unknown(mac, "kernel", now)
+        f = self.gateway_unknown(mac, "kernel", now)
         f.message = (f"The kernel believes the gateway {ip} is {mac}. " + f.message)
-        return [self._finish(f)]
+        return [self.finish(f)]
 
     # ---- internals ------------------------------------------------------------
-    def _in_subnet(self, ip: str) -> bool:
+    def in_subnet(self, ip: str) -> bool:
         try:
             return ipaddress.ip_address(ip) in self.net
         except ValueError:
             return False
 
-    def _gateway_unknown(self, mac: str, source: str, ts: float) -> Finding:
-        known = sorted(self._known_gw())
+    def gateway_unknown(self, mac: str, source: str, ts: float) -> Finding:
+        known = sorted(self.known_gw())
         if self.gw_macs.get(mac) == "rejected":
             return Finding("R01", Severity.CRITICAL, "Rejected gateway MAC seen",
                            f"{mac} was marked rejected and is claiming gateway "
@@ -190,14 +191,15 @@ class Detector:
 
         # R01 gateway MAC check
         if ip == self.gateway_ip:
-            known = self._known_gw()
+            known = self.known_gw()
             if mac in known:
                 pass
-            elif not known and self.learning and self.gw_macs.get(mac) != "rejected":
+            elif not known and self.learning and self.autolearn \
+                    and self.gw_macs.get(mac) != "rejected":
                 self.gw_macs[mac] = "provisional"
                 self.learned.append((mac, "provisional"))
             else:
-                out.append(self._gateway_unknown(mac, "frame", ts))
+                out.append(self.gateway_unknown(mac, "frame", ts))
 
         # passive conflict (R02) and flip-flop (R03)
         out.extend(self._conflict(ip, mac, ts))
@@ -253,7 +255,7 @@ class Detector:
         return []
 
     def _multi_ip(self, ip: str, mac: str, ts: float) -> list[Finding]:
-        if mac == self.our_mac or mac in self._known_gw():
+        if mac == self.our_mac or mac in self.known_gw():
             return []                                    # real gateways may answer for >1 IP
         m = self._mac_ips[mac]
         m[ip] = ts

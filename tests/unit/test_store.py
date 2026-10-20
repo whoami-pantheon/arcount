@@ -90,3 +90,24 @@ def test_readonly(tmp_path):
     ro = Store(tmp_path / "t.db", readonly=True)
     assert ro.list_profiles() == []
     ro.close()
+
+
+def test_readonly_open_without_wal_files_in_unwritable_dir(tmp_path):
+    """Daemon stopped (no -wal/-shm) and a reader that cannot write the directory."""
+    import os
+    import pytest
+    if os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions")
+    d = tmp_path / "state"
+    d.mkdir()
+    st = Store(d / "arcount.db")
+    mkprofile(st)
+    st.close()
+    for f in d.glob("arcount.db-*"):
+        f.unlink()
+    d.chmod(0o555)
+    try:
+        ro = Store(d / "arcount.db", readonly=True)
+        assert ro.list_profiles()
+    finally:
+        d.chmod(0o755)

@@ -275,6 +275,11 @@ def cmd_test_alert(args) -> int:
     return 0
 
 
+def cmd_setup(args) -> int:
+    from .setup_cmd import cmd_setup as run
+    return run(args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="arcount", description="ARP attack detection")
     ap.add_argument("--version", action="version", version=f"arcount {__version__}")
@@ -317,6 +322,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--minutes", type=float, default=60)
     add("resume", cmd_resume, "end a pause (sudo)")
     add("test-alert", cmd_test_alert, "send a test alert through all sinks")
+    p = add("setup", cmd_setup, "install / check / remove Arcount on this machine (sudo)")
+    p.add_argument("--check", action="store_true", help="report what is installed and working")
+    p.add_argument("--uninstall", action="store_true")
+    p.add_argument("--purge", action="store_true", help="with --uninstall: also delete history")
+    p.add_argument("--no-start", action="store_true", help="install files, do not touch systemd")
+    p.add_argument("--user", help="user to add to group arcount (default: $SUDO_USER)")
+    p.add_argument("--root", help=argparse.SUPPRESS)       # stage into a directory (tests)
     return ap
 
 

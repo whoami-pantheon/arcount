@@ -11,7 +11,7 @@ def test_defaults_load():
 
 
 def test_example_file_loads():
-    cfg = config.load("packaging/arcount.toml.example")
+    cfg = config.load("src/arcount/data/arcount.toml.example")
     assert cfg.alerts.email.from_addr == ""
     assert cfg.detection.learning_seconds == 120
 

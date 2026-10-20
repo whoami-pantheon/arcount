@@ -49,7 +49,7 @@ class Store:
     def __init__(self, path: Path | str, readonly: bool = False):
         self.path = str(path)
         if readonly:
-            self.db = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
+            self.db = self._open_readonly(self.path)
         else:
             self.db = sqlite3.connect(self.path)
             self.db.execute("PRAGMA journal_mode=WAL")
@@ -60,6 +60,26 @@ class Store:
             self._migrate()
         # (profile, ip, mac) -> [last_seen, count_delta]; flushed periodically
         self._pending_hosts: dict[tuple, list] = {}
+
+    @staticmethod
+    def _open_readonly(path: str) -> sqlite3.Connection:
+        """Read-only open that also works for a non-owner group member.
+
+        With the daemon running, mode=ro is enough (-wal/-shm exist and are group-readable). Once
+        the daemon has stopped, SQLite has checkpointed and removed them, and a reader that cannot
+        write the state directory cannot recreate them ("attempt to write a readonly database").
+        With no writer left the file is stable, so fall back to an immutable open.
+        """
+        for flags in ("mode=ro", "mode=ro&immutable=1"):
+            db = sqlite3.connect(f"file:{path}?{flags}", uri=True)
+            try:
+                db.execute("SELECT count(*) FROM sqlite_master").fetchone()
+                return db
+            except sqlite3.OperationalError:
+                db.close()
+                if flags != "mode=ro":
+                    raise
+        raise AssertionError("unreachable")
 
     def _migrate(self) -> None:
         cur = self.db.execute("SELECT name FROM sqlite_master WHERE name='meta'").fetchone()

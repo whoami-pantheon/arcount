@@ -22,15 +22,45 @@ impersonation. Python 3.11+, standard library only.
 - **Alert sinks:** journal, desktop (via the `arcount-notify` user agent), plus stubbed ntfy/email
   seams (disabled; see `docs/ROADMAP.md`).
 
-## Install
+## Install on this machine
 ```sh
-sudo packaging/install.sh      # creates group `arcount`, installs to /opt/arcount, enables arcountd
+sudo packaging/install.sh          # same as: sudo PYTHONPATH=src python3 -m arcount setup
 ```
-Log out and in once so your user is in the `arcount` group (needed by the CLI and desktop agent).
-`sudo packaging/uninstall.sh [--purge]` removes it (history kept unless `--purge`).
+`arcount setup` runs a preflight (python >= 3.11, iproute2, systemd, plus warnings for NetworkManager,
+iw, libnotify and ieee-data), creates the `arcount` group and adds you to it, installs to
+`/opt/arcount`, writes `/etc/arcount/arcount.toml` (an existing one is never overwritten), installs
+the systemd unit and desktop autostart, then enables and starts the service. It is idempotent, so
+re-running it is also how you upgrade. **Log out and in once** afterwards so the group applies.
 
-Config: `/etc/arcount/arcount.toml` (example: `packaging/arcount.toml.example`). Restart
-`arcountd` after editing.
+```sh
+arcount setup --check              # what is installed / running / reachable (no root needed)
+sudo arcount setup --uninstall     # remove (history kept); add --purge to delete it too
+```
+Config: `/etc/arcount/arcount.toml` (reference copy: `src/arcount/data/arcount.toml.example`).
+Restart with `sudo systemctl restart arcountd` after editing.
+
+## Install on another machine
+Requirements: a Debian-family Linux with systemd, Python 3.11+, `iproute2`. Recommended:
+`network-manager`, `iw`, `libnotify-bin`, `ieee-data`, and a desktop that runs `/etc/xdg/autostart`
+entries (XFCE, GNOME, KDE all do). Nothing else: Arcount uses only the standard library.
+
+On this machine, build the tarball:
+```sh
+packaging/make-dist.sh             # -> dist/arcount-0.1.0.tar.gz (prints its sha256)
+scp dist/arcount-0.1.0.tar.gz user@other-laptop:
+```
+On the other machine:
+```sh
+sha256sum arcount-0.1.0.tar.gz     # compare with the hash printed above
+tar xzf arcount-0.1.0.tar.gz && cd arcount-0.1.0
+PYTHONPATH=src python3 -m arcount setup --check      # preflight, installs nothing
+sudo packaging/install.sh                            # install and start
+# log out and in once, then:
+arcount status
+arcount test-alert
+```
+Each laptop keeps its own history database; nothing is shared between machines. A proper `.deb`
+is on the roadmap (`docs/ROADMAP.md`).
 
 ## Use
 ```sh

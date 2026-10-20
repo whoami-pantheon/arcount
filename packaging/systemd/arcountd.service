@@ -1,0 +1,42 @@
+[Unit]
+Description=Arcount ARP attack detector
+Documentation=file:///opt/arcount/README.md
+Wants=network-pre.target
+Before=network-pre.target NetworkManager.service
+
+[Service]
+Type=notify
+ExecStart=/opt/arcount/bin/arcountd
+ExecStopPost=/opt/arcount/bin/arcountd --cleanup-pins
+Restart=on-failure
+RestartSec=2
+WatchdogSec=60
+User=root
+Group=arcount
+UMask=0027
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+NoNewPrivileges=yes
+StateDirectory=arcount
+StateDirectoryMode=0750
+RuntimeDirectory=arcount
+RuntimeDirectoryMode=0750
+ConfigurationDirectory=arcount
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_PACKET AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

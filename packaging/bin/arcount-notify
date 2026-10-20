@@ -1,0 +1,5 @@
+#!/usr/bin/python3 -I
+import sys
+sys.path.insert(0, "/opt/arcount/lib")
+from arcount.notify_agent import main
+sys.exit(main())

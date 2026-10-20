@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Arcount alerts
+Comment=Desktop notifications from the Arcount ARP attack detector
+Exec=/opt/arcount/bin/arcount-notify
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

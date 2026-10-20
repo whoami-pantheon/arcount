@@ -1,0 +1,45 @@
+[interfaces]
+include = []                                   # empty = all eligible
+exclude = ["docker*", "br-*", "veth*", "virbr*", "vmnet*", "tun*", "tap*"]
+
+[detection]
+learning_seconds = 120
+conflict_window = 30
+flipflop_window = 600
+unsolicited_threshold = 5
+gratuitous_threshold = 20
+request_match_window = 5
+ether_mismatch_allow = []                      # MACs of known MAC-NAT extenders
+
+[storage]
+host_ttl_days = 90
+event_ttl_days = 180
+
+[response]
+pin_gateway = "off"                            # "off" | "trusted"
+disconnect = "off"                             # "off" | "confirmed_critical" | "confirmed_high"
+disconnect_during_learning = false
+
+[alerts.journal]
+min_severity = "info"
+
+[alerts.socket]
+min_severity = "low"
+
+[alerts.ntfy]                                  # seam - not implemented in v1
+enabled = false
+server = "https://ntfy.sh"
+topic_file = "/etc/arcount/secrets.toml"
+min_severity = "high"
+
+[alerts.email]                                 # seam - not implemented in v1
+enabled = false
+smtp_host = ""
+smtp_port = 587
+from = ""
+to = []
+credentials_file = "/etc/arcount/secrets.toml"
+min_severity = "high"
+
+[agent]
+min_severity = "medium"

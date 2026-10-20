@@ -178,3 +178,27 @@ def test_config_edit(capsys, tmp_path, env, monkeypatch):
     assert calls[1] == ["sudo", "systemctl", "restart", "arcountd"]
     rc, _, err = run(capsys, env, "config", "--file", str(tmp_path / "missing.toml"), "edit")
     assert rc != 0 and "arcount setup" in err
+
+
+def test_hosts_without_network_uses_connected_ones(capsys, env, monkeypatch):
+    db, pid, _ = env
+    monkeypatch.setattr(cli, "ctl", lambda sock, req: {"ok": True, "sessions": [
+        {"profile_id": pid}, {"profile_id": None}]})
+    rc, out, _ = run(capsys, env, "hosts")
+    assert rc == 0 and "10.0.0.9" in out and "# HomeWifi" in out
+    rc, out, _ = run(capsys, env, "hosts", "--since", "1h")
+    assert rc == 0 and "10.0.0.9" in out
+    monkeypatch.setattr(cli, "ctl", lambda sock, req: {"ok": True, "sessions": []})
+    rc, _, err = run(capsys, env, "hosts")
+    assert rc == 1 and "not connected" in err
+
+
+def test_help_lists_every_command(capsys):
+    import pytest
+    with pytest.raises(SystemExit):
+        cli.main(["--help"])
+    out = capsys.readouterr().out
+    for c in ("status", "networks", "hosts", "events", "show", "trust", "reject", "rename", "forget",
+              "import-arpwatch", "pause", "resume", "test-alert", "mac", "config", "doctor",
+              "setup", "update"):
+        assert c in out, c

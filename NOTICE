@@ -1,0 +1,9 @@
+Arcount
+Copyright 2026 Clive Akporube
+
+This product includes software developed by Clive Akporube
+(https://github.com/whoami-pantheon).
+
+Licensed under the Apache License, Version 2.0; see the LICENSE file.
+Arcount uses only the Python standard library at runtime. It optionally reads the IEEE OUI
+registry files from the Debian `ieee-data` package, installed separately and not redistributed here.

@@ -13,6 +13,7 @@ from typing import Callable
 
 from . import arp, identity, netwatch
 from .alerts import Alert, Dispatcher
+from .oui import annotate
 from .detector import KNOWN_STATES, TRUSTED_STATES, Detector, Finding, Severity
 from .verify import Assertions, ProbeResult, ProbeTracker, assess
 
@@ -421,6 +422,8 @@ class Session:
         if len(g.findings) > 1:
             extra = [f.message for f in g.findings if f is not top and f.message != msg]
             msg = " ".join([msg] + extra)
+        # name the device maker next to every MAC as it is detected (before the copy-paste hints)
+        msg = annotate(msg, [*g.macs, *details.get("previous", [])], ctx.oui)
         if g.gateway and self.pinned_mac and "R01" in g.rules:
             msg += " (the kernel entry is pinned, so traffic was not redirected)"
         if g.wants_probe:

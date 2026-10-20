@@ -1,0 +1,352 @@
+"""`arcount update`: upgrade an installed Arcount from a newer source, with checks and rollback.
+
+    sudo arcount update --from ~/arcount            # a git checkout (contains src/arcount)
+    sudo arcount update --from arcount-0.2.0.tar.gz # a tarball from packaging/make-dist.sh
+    sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m arcount update   # from inside a checkout, no --from needed
+
+What it guards against:
+  * a broken download/checkout: the new code is syntax-checked, imported and run against your
+    existing config *before* anything is replaced;
+  * a database from a newer version (code cannot be downgraded under a migrated database);
+  * a power cut or crash halfway: the old code stays as lib/arcount.prev and is restored on the
+    next run if the swap was interrupted;
+  * a new version that will not start: the service is health-checked after the restart and the
+    old version (and database) are put back automatically if it fails.
+Config (/etc/arcount/arcount.toml) is never modified. History is backed up first.
+"""
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import os
+import re
+import shutil
+import sqlite3
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+from pathlib import Path
+
+from . import setup_cmd as S
+# Everything the swap-and-restart path needs is imported up front: once lib/arcount is replaced,
+# a lazy import in this still-running process would load NEW modules next to OLD ones.
+from .cli import DEFAULT_DB, DEFAULT_SOCK, ctl
+
+VERSION_RE = re.compile(r'^__version__\s*=\s*"([^"]+)"', re.M)
+SCHEMA_RE = re.compile(r"^SCHEMA_VERSION\s*=\s*(\d+)", re.M)
+REQUIRED = ("__init__.py", "cli.py", "daemon.py", "store.py", "data/arcountd.service",
+            "data/arcount.toml.example", "data/arcount-notify.desktop")
+HEALTH_TIMEOUT = 20
+
+
+class UpdateError(Exception):
+    pass
+
+
+def version_key(v: str) -> tuple:
+    return tuple(int(x) for x in re.findall(r"\d+", v))
+
+
+def read_version(pkg: Path) -> str | None:
+    try:
+        m = VERSION_RE.search((pkg / "__init__.py").read_text())
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
+def read_schema(pkg: Path) -> int | None:
+    try:
+        m = SCHEMA_RE.search((pkg / "store.py").read_text())
+    except OSError:
+        return None
+    return int(m.group(1)) if m else None
+
+
+def db_schema(db: Path) -> int | None:
+    if not db.exists():
+        return None
+    try:
+        c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            r = c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+        finally:
+            c.close()
+        return int(r[0]) if r else None
+    except (sqlite3.Error, ValueError):
+        return None
+
+
+# ---- locating and unpacking the new source ---------------------------------------------
+def find_package(top: Path) -> Path:
+    """The `arcount` package directory inside a checkout, an extracted tarball or the package itself."""
+    cands = [top, top / "arcount", top / "src" / "arcount"]
+    cands += sorted(top.glob("*/src/arcount"))
+    for c in cands:
+        if (c / "__init__.py").is_file() and (c / "daemon.py").is_file():
+            return c
+    raise UpdateError(f"{top} does not contain an arcount package (looked for src/arcount)")
+
+
+def _expected_sha(tarball: Path, given: str | None) -> str | None:
+    if given:
+        return given.strip().lower()
+    side = tarball.with_name(tarball.name + ".sha256")
+    if side.is_file():
+        words = side.read_text().split()
+        return words[0].lower() if words else None
+    return None
+
+
+def extract(tarball: Path, dest: Path, sha: str | None, out: S.Out) -> Path:
+    want = _expected_sha(tarball, sha)
+    h = hashlib.sha256()
+    with open(tarball, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    if want is None:
+        out.warn("no checksum given (--sha256 or a .sha256 file next to the tarball): "
+                 "integrity of the download is NOT verified")
+    elif h.hexdigest() != want:
+        raise UpdateError(f"checksum mismatch for {tarball.name}: expected {want}, got {h.hexdigest()}")
+    else:
+        out.ok("tarball checksum verified")
+    try:
+        with tarfile.open(tarball) as tf:
+            members = tf.getmembers()
+            for m in members:       # extract nothing that could land outside dest or act as a device/link
+                parts = Path(m.name).parts
+                if Path(m.name).is_absolute() or ".." in parts:
+                    raise UpdateError(f"unsafe path in tarball: {m.name}")
+                if not (m.isreg() or m.isdir()):
+                    raise UpdateError(f"tarball contains a non-regular entry: {m.name}")
+            for m in members:
+                m.mode &= 0o755             # drop setuid/setgid/world-write bits
+                m.uid = m.gid = 0
+            tf.extractall(dest, members=members, filter="data") if hasattr(tarfile, "data_filter") else tf.extractall(dest, members=members)
+    except (tarfile.TarError, OSError) as e:
+        raise UpdateError(f"cannot read {tarball}: {e}") from None
+    return find_package(dest)
+
+
+def validate(pkg: Path, config: Path, out: S.Out) -> None:
+    """Refuse a source that cannot work, before anything on the system is touched."""
+    for rel in REQUIRED:
+        if not (pkg / rel).is_file():
+            raise UpdateError(f"incomplete source: {rel} is missing")
+    for f in sorted(pkg.rglob("*.py")):
+        try:
+            compile(f.read_text(), str(f), "exec")
+        except (SyntaxError, ValueError, UnicodeDecodeError) as e:
+            raise UpdateError(f"{f.relative_to(pkg)} does not compile: {e}") from None
+    out.ok("new code compiles")
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); import arcount.cli, arcount.daemon, "
+            "arcount.config as c; c.load(sys.argv[2] if sys.argv[2] else None)")
+    r = subprocess.run([sys.executable, "-I", "-c", code, str(pkg.parent),
+                        str(config) if config.exists() else ""],
+                       capture_output=True, text=True, timeout=60,
+                       env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})   # no root-owned .pyc in the source tree
+    if r.returncode:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-1:] or ["(no output)"]
+        raise UpdateError("the new version rejects your current config or cannot start: "
+                          f"{tail[0]}\n  Fix the config (arcount config edit) or use a different version.")
+    out.ok("new code imports and accepts your config")
+
+
+# ---- the update ------------------------------------------------------------------------
+class Updater:
+    def __init__(self, args, run=S._run, health=None, services: bool | None = None):
+        self.args = args
+        self.staging = getattr(args, "root", None) is not None
+        self.root = Path(args.root or "/")
+        self.services = (not self.staging and not args.no_restart) if services is None else services
+        self.run = run
+        self.health = health or self._health
+        self.out = S.Out()
+        base = self.root / S.PREFIX.lstrip("/")
+        self.lib = base / "lib"
+        self.cur, self.new, self.prev = self.lib / "arcount", self.lib / "arcount.new", self.lib / "arcount.prev"
+        self.cfg = self.root / "etc/arcount/arcount.toml"
+        self.db = self.root / DEFAULT_DB.lstrip("/")
+        self.sock = args.sock if getattr(args, "sock", None) else DEFAULT_SOCK
+
+    # -- steps --
+    def _recover_interrupted(self) -> None:
+        if not self.cur.exists() and self.prev.exists():
+            self.prev.rename(self.cur)
+            self.out.warn("a previous update was interrupted; restored the old version first")
+        shutil.rmtree(self.new, ignore_errors=True)
+
+    def _backup_db(self, old_version: str) -> Path | None:
+        if not self.db.exists():
+            return None
+        dest = self.db.with_name(f"{self.db.name}.pre-update")
+        dest.unlink(missing_ok=True)
+        src = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True)
+        try:
+            dst = sqlite3.connect(dest)
+            try:
+                src.backup(dst)         # consistent even while the daemon is writing
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        os.chmod(dest, 0o600)
+        self.out.ok(f"history backed up to {dest} (taken at version {old_version})")
+        return dest
+
+    def _swap_in(self, pkg: Path) -> None:
+        shutil.rmtree(self.new, ignore_errors=True)
+        shutil.copytree(pkg, self.new, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        for p in [self.new, *self.new.rglob("*")]:
+            os.chmod(p, 0o755 if p.is_dir() else 0o644)
+        shutil.rmtree(self.prev, ignore_errors=True)
+        self.cur.rename(self.prev)
+        try:
+            self.new.rename(self.cur)
+        except OSError:
+            self.prev.rename(self.cur)
+            raise
+
+    def _roll_back(self, db_backup: Path | None, schema_before: int | None) -> None:
+        shutil.rmtree(self.cur, ignore_errors=True)
+        self.prev.rename(self.cur)
+        S.write_support_files(self.root, self.cur / "data", S.Out())
+        if db_backup and db_backup.exists() and db_schema(self.db) != schema_before:
+            shutil.copyfile(db_backup, self.db)         # the new version had migrated it
+            for ext in ("-wal", "-shm"):
+                Path(str(self.db) + ext).unlink(missing_ok=True)
+        if self.services:
+            self.run(["systemctl", "daemon-reload"], check=False)
+            self.run(["systemctl", "restart", "arcountd"], check=False)
+
+    def _health(self, want_version: str) -> str | None:
+        """None when healthy, else a reason."""
+        deadline = time.monotonic() + HEALTH_TIMEOUT
+        reason = "service did not become active"
+        while time.monotonic() < deadline:
+            time.sleep(1)
+            if self.run(["systemctl", "is-active", "--quiet", "arcountd"], check=False).returncode:
+                reason = "service is not active"
+                continue
+            try:
+                r = ctl(self.sock, {"cmd": "status"})
+            except Exception as e:           # CliError while the socket is still coming up
+                reason = f"control socket not answering: {e}"
+                continue
+            if r.get("ok") and r.get("version") == want_version:
+                return None
+            reason = f"daemon reports version {r.get('version')!r}, expected {want_version!r}"
+        return reason
+
+    # -- main --
+    def update(self, source: Path | None, tmp: Path) -> int:
+        out, a = self.out, self.args
+        print("Checking")
+        if not self.staging and os.geteuid() != 0:
+            print("update must run as root: sudo arcount update --from <dir|tarball>")
+            return 1
+        if not (self.lib / "arcount").exists() and not self.prev.exists():
+            raise UpdateError("Arcount is not installed here; run `sudo arcount setup` first")
+        self._recover_interrupted()
+
+        src = source
+        if src is None:         # running from a checkout: update from the code we are running
+            running = Path(__file__).resolve().parent
+            if running == self.cur.resolve():
+                raise UpdateError("say where the new version is: arcount update --from <dir|tarball>")
+            src = running
+        if src.is_file():
+            pkg = extract(src, tmp / "src", a.sha256, out)
+        elif src.is_dir():
+            pkg = find_package(src)
+        else:
+            raise UpdateError(f"no such file or directory: {src}")
+        if pkg.resolve() == self.cur.resolve():
+            raise UpdateError("the source is the installed copy itself; point --from at the new version")
+
+        old, new = read_version(self.cur) or "unknown", read_version(pkg)
+        if not new:
+            raise UpdateError(f"cannot read the version from {pkg / '__init__.py'}")
+        new_schema, db_now = read_schema(pkg), db_schema(self.db)
+        if db_now is not None and new_schema is not None and db_now > new_schema:
+            raise UpdateError(f"your history database is schema {db_now} but version {new} only "
+                              f"understands schema {new_schema}. Refusing: that would corrupt it.")
+        if version_key(new) < version_key(old) and not a.force:
+            raise UpdateError(f"{new} is older than the installed {old}; use --force to downgrade")
+        if new == old and not a.force:
+            print(f"  ok    already at {old}; nothing to do (--force reinstalls the same version)")
+            return 0
+        out.ok(f"{old} -> {new}")
+        validate(pkg, self.cfg, out)
+        S.preflight(out, need_systemd=self.services)
+        if out.problems:
+            print("\nFix the FAIL items above and run update again.")
+            return 1
+        if a.dry_run:
+            print("\nDry run: everything checks out; nothing was changed.")
+            return 0
+
+        print("\nUpdating")
+        lock = None
+        if not self.staging:
+            lock = open(self.lib.parent / ".update.lock", "w")
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise UpdateError("another update is already running") from None
+        try:
+            backup = self._backup_db(old)
+            self._swap_in(pkg)
+            out.ok(f"package replaced (previous version kept in {self.prev})")
+            S.write_support_files(self.root, self.cur / "data", out)
+            if not self.services:
+                print("\nService not restarted (--no-restart / --root). Apply with: "
+                      "sudo systemctl restart arcountd")
+                return 0
+            self.run(["systemctl", "daemon-reload"])
+            self.run(["systemctl", "restart", "arcountd"], check=False)
+            problem = self.health(new)
+            if problem:
+                out.fail(f"{new} did not come up ({problem}); rolling back to {old}")
+                self._roll_back(backup, db_schema_before(backup))
+                back = self.health(old)
+                (out.ok if back is None else out.fail)(
+                    f"rolled back to {old}" if back is None else
+                    f"rollback also failed ({back}); see journalctl -u arcountd -n 50 --no-pager")
+                return 1
+            out.ok(f"arcountd {new} is running")
+        finally:
+            if lock:
+                lock.close()
+        print(f"""
+Updated {old} -> {new}.
+  * Monitoring was interrupted for a few seconds during the restart; known networks resume at once.
+  * Your config was not touched. New options are documented in
+    {self.cur / 'data/arcount.toml.example'}
+  * The desktop popup agent keeps running the old code until you log out and in
+    (or: pkill -f arcount-notify; arcount-notify &).
+  * Undo: sudo arcount update --force --from {self.prev}   (old version kept; history backup at
+    {self.db.name}.pre-update)
+Check any time with: arcount doctor""")
+        return 0
+
+
+def db_schema_before(backup: Path | None) -> int | None:
+    return db_schema(backup) if backup else None
+
+
+def cmd_update(args) -> int:
+    up = Updater(args)
+    try:
+        with tempfile.TemporaryDirectory(prefix="arcount-update-") as tmp:
+            return up.update(Path(args.source).expanduser() if args.source else None, Path(tmp))
+    except (UpdateError, S.SetupError) as e:
+        print(f"\nupdate failed: {e}", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"\nupdate failed: {e}\nRe-run `sudo arcount update`: an interrupted swap is repaired "
+              f"automatically.", file=sys.stderr)
+        return 1

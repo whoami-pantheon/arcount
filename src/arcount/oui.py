@@ -70,3 +70,23 @@ def describe_kind(k: dict) -> str:
         return ("locally administered (randomised privacy address, VM/container or software "
                 "interface; no vendor can be derived)")
     return "globally unique (assigned to a manufacturer)"
+
+
+def label(oui: Oui, mac: str) -> str:
+    """Short human label for a MAC: vendor name, or why there is none."""
+    v = oui.vendor(mac)
+    if v:
+        return v
+    try:
+        return "randomised/virtual" if mac_kind(mac)["local"] else ""
+    except ValueError:
+        return ""
+
+
+def annotate(text: str, macs, oui: Oui) -> str:
+    """Append '(Vendor)' after each MAC mentioned in `text`, so alerts name the device maker."""
+    for m in sorted(set(macs), key=len, reverse=True):
+        lab = label(oui, m)
+        if lab and m in text and f"{m} (" not in text:
+            text = text.replace(m, f"{m} ({lab})")
+    return text

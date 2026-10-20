@@ -15,7 +15,7 @@ from pathlib import Path
 from . import __version__, arp
 from .detector import Severity
 from .netinfo import clean
-from .oui import Oui, describe_kind, mac_kind
+from .oui import Oui, describe_kind, label, mac_kind
 from .store import Store
 
 DEFAULT_DB = "/var/lib/arcount/arcount.db"
@@ -141,15 +141,26 @@ def cmd_networks(args) -> int:
 
 def cmd_hosts(args) -> int:
     st = open_store(args, False)
-    p = need_profile(st, args.profile)
+    if args.profile:
+        profiles = [need_profile(st, args.profile)]
+    else:       # no network named: the network(s) this laptop is connected to right now
+        r = ctl(args.sock, {"cmd": "status"})
+        ids = [x["profile_id"] for x in r.get("sessions", []) if x.get("profile_id")]
+        profiles = [p for p in (st.get_profile(i) for i in ids) if p]
+        if not profiles:
+            raise CliError("not connected to a known network right now; name one "
+                           "(see `arcount networks`)")
     oui = Oui()
-    cutoff = 0 if args.all else time.time() - 7 * 86400
-    rows = [[h["ip"], h["mac"], oui.vendor(h["mac"])[:30], fmt_ts(h["first_seen"]),
-             fmt_ts(h["last_seen"]), h["seen_count"]]
-            for h in st.hosts(p["id"]) if h["last_seen"] >= cutoff]
-    print(f"# {p['name']}" + ("" if args.all else "  (last 7 days; --all for everything)"))
-    print(table(rows, ["IP", "MAC", "VENDOR", "FIRST SEEN", "LAST SEEN", "COUNT"])
-          if rows else "no hosts")
+    span = 7 * 86400 if args.since is None else parse_duration(args.since)
+    cutoff = 0 if args.all else time.time() - span
+    window = "" if args.all else f"  (seen in the last {args.since or '7d'}; --all for everything)"
+    for n, p in enumerate(profiles):
+        rows = [[h["ip"], h["mac"], label(oui, h["mac"])[:30], fmt_ts(h["first_seen"]),
+                 fmt_ts(h["last_seen"]), h["seen_count"]]
+                for h in st.hosts(p["id"]) if h["last_seen"] >= cutoff]
+        print(("\n" if n else "") + f"# {p['name']}{window}")
+        print(table(rows, ["IP", "MAC", "VENDOR", "FIRST SEEN", "LAST SEEN", "COUNT"])
+              if rows else "no hosts")
     return 0
 
 
@@ -383,6 +394,11 @@ def cmd_doctor(args) -> int:
     return doctor.run(args)
 
 
+def cmd_update(args) -> int:
+    from .update_cmd import cmd_update as run
+    return run(args)
+
+
 def cmd_setup(args) -> int:
     from .setup_cmd import cmd_setup as run
     return run(args)
@@ -402,38 +418,43 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("status", cmd_status, "live daemon status")
     add("networks", cmd_networks, "learned networks")
-    p = add("hosts", cmd_hosts, "hosts seen on a network")
-    p.add_argument("profile")
-    p.add_argument("--all", action="store_true")
+    p = add("hosts", cmd_hosts, "devices seen on a network (default: the one you are connected to)")
+    p.add_argument("profile", nargs="?",
+                   help="network name or id (default: the network(s) connected right now)")
+    p.add_argument("--since", help="only hosts seen within this long, e.g. 15m, 24h, 7d (default 7d)")
+    p.add_argument("--all", action="store_true", help="everything ever seen")
     p = add("events", cmd_events, "recent events")
-    p.add_argument("--since", default="24h")
-    p.add_argument("--min-severity", default="low", choices=[s.name.lower() for s in Severity])
-    p.add_argument("--profile")
-    p.add_argument("--limit", type=int, default=100)
-    p.add_argument("--json", action="store_true")
+    p.add_argument("--since", default="24h", help="how far back, e.g. 90s, 30m, 24h, 7d (default 24h)")
+    p.add_argument("--min-severity", default="low", choices=[s.name.lower() for s in Severity],
+                   help="hide anything below this severity (default low)")
+    p.add_argument("--profile", help="only this network (name or id)")
+    p.add_argument("--limit", type=int, default=100, help="maximum rows (default 100)")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
     p = add("show", cmd_show, "show one event")
-    p.add_argument("event_id")
+    p.add_argument("event_id", help="event id or any unique prefix of it (see `arcount events`)")
     for name, fn, h in (("trust", cmd_trust, "trust a gateway MAC (sudo)"),
                         ("reject", cmd_reject, "reject a gateway MAC (sudo)")):
         p = add(name, fn, h)
-        p.add_argument("profile")
-        p.add_argument("mac")
+        p.add_argument("profile", help="network name or id (see `arcount networks`)")
+        p.add_argument("mac", help="gateway MAC address, e.g. aa:bb:cc:dd:ee:ff")
     p = add("rename", cmd_rename, "rename a network (sudo)")
-    p.add_argument("profile")
-    p.add_argument("name")
-    p = add("forget", cmd_forget, "forget a network (sudo)")
-    p.add_argument("profile")
+    p.add_argument("profile", help="network name or id")
+    p.add_argument("name", help="new display name")
+    p = add("forget", cmd_forget, "forget a network and all its history (sudo)")
+    p.add_argument("profile", help="network name or id")
     p = add("import-arpwatch", cmd_import, "import an arpwatch arp.dat (sudo)")
-    p.add_argument("file")
-    p.add_argument("--profile", required=True)
+    p.add_argument("file", help="path to an arpwatch arp.dat file")
+    p.add_argument("--profile", required=True, help="network (name or id) to attach the hosts to")
     p = add("pause", cmd_pause, "pause alerts/responses, e.g. while pentesting (sudo)")
-    p.add_argument("--minutes", type=float, default=60)
+    p.add_argument("--minutes", type=float, default=60, help="pause length (default 60)")
     add("resume", cmd_resume, "end a pause (sudo)")
     add("test-alert", cmd_test_alert, "send a test alert through all sinks")
     p = add("mac", cmd_mac, "look up MAC addresses: vendor, type, and where they were seen")
-    p.add_argument("macs", nargs="+", metavar="MAC")
+    p.add_argument("macs", nargs="+", metavar="MAC", help="one or more MAC addresses (any common format)")
     p = add("config", cmd_config, "show, check or edit the configuration")
-    p.add_argument("action", choices=["show", "check", "edit", "path"], nargs="?", default="show")
+    p.add_argument("action", choices=["show", "check", "edit", "path"], nargs="?", default="show",
+                   help="show: effective settings (default) | check: validate | edit: open in editor "
+                        "| path: print the file location")
     p.add_argument("--restart", action="store_true", help="with edit: restart arcountd afterwards")
     p.add_argument("--file", help=argparse.SUPPRESS)
     p = add("doctor", cmd_doctor, "diagnose the installation and say how to fix problems")
@@ -441,12 +462,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", help="config file to validate (default /etc/arcount/arcount.toml)")
     p = add("setup", cmd_setup, "install / check / remove Arcount on this machine (sudo)")
     p.add_argument("--check", action="store_true", help="same as `arcount doctor`")
-    p.add_argument("--uninstall", action="store_true")
+    p.add_argument("--uninstall", action="store_true", help="remove Arcount (keeps history and config)")
     p.add_argument("--purge", action="store_true", help="with --uninstall: also delete history")
     p.add_argument("--no-start", action="store_true", help="install files, do not touch systemd")
     p.add_argument("--user", help="user to add to group arcount (default: $SUDO_USER)")
     p.add_argument("--config", help=argparse.SUPPRESS)
     p.add_argument("--root", help=argparse.SUPPRESS)       # stage into a directory (tests)
+    p = add("update", cmd_update, "upgrade the installed Arcount from a newer checkout/tarball (sudo)")
+    p.add_argument("--from", dest="source", metavar="DIR|TARBALL",
+                   help="new version: a git checkout or a make-dist tarball "
+                        "(default: the checkout this command is run from)")
+    p.add_argument("--sha256", help="expected checksum of the tarball (or a .sha256 file beside it)")
+    p.add_argument("--dry-run", action="store_true", help="run all checks, change nothing")
+    p.add_argument("--force", action="store_true", help="reinstall the same version / allow a downgrade")
+    p.add_argument("--no-restart", action="store_true", help="swap files but do not restart the service")
+    p.add_argument("--root", help=argparse.SUPPRESS)
     return ap
 
 

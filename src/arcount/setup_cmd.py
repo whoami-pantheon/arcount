@@ -139,6 +139,34 @@ def _ensure_group(user: str | None, out: Out) -> None:
         out.ok(f"added {user} to group {GROUP}  (log out and in again for it to apply)")
 
 
+def write_support_files(root: Path, data: Path, out: Out) -> bool:
+    """Launchers, config (only if absent), systemd unit, autostart and symlinks. `data` is the
+    package data directory to take them from. Returns True when a launcher/unit changed."""
+    changed = False
+    for name, module in LAUNCHERS.items():
+        changed |= _write(root / PREFIX.lstrip("/") / "bin" / name,
+                          LAUNCHER.format(python=_python(), prefix=PREFIX, module=module),
+                          0o755, out, f"launcher {name}")
+
+    cfg = root / "etc/arcount/arcount.toml"
+    if cfg.exists():
+        out.note(f"config {cfg}: kept (yours); reference copy is {data / 'arcount.toml.example'}")
+    else:
+        _write(cfg, (data / "arcount.toml.example").read_text(), 0o644, out, f"config {cfg}")
+    changed |= _write(root / "etc/systemd/system/arcountd.service",
+                      (data / "arcountd.service").read_text(), 0o644, out, "systemd unit")
+    _write(root / "etc/xdg/autostart/arcount-notify.desktop",
+           (data / "arcount-notify.desktop").read_text(), 0o644, out, "desktop autostart")
+    for link, target in ((root / "usr/local/bin/arcount", f"{PREFIX}/bin/arcount"),
+                         (root / "usr/local/sbin/arcountd", f"{PREFIX}/bin/arcountd")):
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(target)
+        out.ok(f"symlink {link}")
+    return changed
+
+
 def install(args) -> int:
     out = Out()
     staging = args.root is not None
@@ -151,7 +179,7 @@ def install(args) -> int:
     if not staging and os.geteuid() != 0:
         print("\nsetup must run as root:  sudo "
               + ("arcount setup" if PKG.parent == Path(PREFIX, "lib") else
-                 f"env PYTHONPATH={PKG.parent} {sys.executable} -m arcount setup"))
+                 f"env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH={PKG.parent} {sys.executable} -m arcount setup"))
         return 1
 
     print("\nInstalling")
@@ -170,27 +198,7 @@ def install(args) -> int:
             os.chmod(p, 0o755 if p.is_dir() else 0o644)
         out.ok(f"package: copied to {dest_lib}")
         changed = True
-    for name, module in LAUNCHERS.items():
-        changed |= _write(root / PREFIX.lstrip("/") / "bin" / name,
-                          LAUNCHER.format(python=_python(), prefix=PREFIX, module=module),
-                          0o755, out, f"launcher {name}")
-
-    cfg = root / "etc/arcount/arcount.toml"
-    if cfg.exists():
-        out.note(f"config {cfg}: kept (yours); reference copy is {DATA / 'arcount.toml.example'}")
-    else:
-        _write(cfg, (DATA / "arcount.toml.example").read_text(), 0o644, out, f"config {cfg}")
-    changed |= _write(root / "etc/systemd/system/arcountd.service",
-                      (DATA / "arcountd.service").read_text(), 0o644, out, "systemd unit")
-    _write(root / "etc/xdg/autostart/arcount-notify.desktop",
-           (DATA / "arcount-notify.desktop").read_text(), 0o644, out, "desktop autostart")
-    for link, target in ((root / "usr/local/bin/arcount", f"{PREFIX}/bin/arcount"),
-                         (root / "usr/local/sbin/arcountd", f"{PREFIX}/bin/arcountd")):
-        link.parent.mkdir(parents=True, exist_ok=True)
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        link.symlink_to(target)
-        out.ok(f"symlink {link}")
+    changed |= write_support_files(root, DATA, out)
 
     if staging or args.no_start:
         print("\nService not started (--root / --no-start).")

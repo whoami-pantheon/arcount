@@ -33,3 +33,15 @@ def test_mac_kind_and_description():
     assert "randomised" in describe_kind(mac_kind("02:aa:bb:cc:dd:ee"))
     assert "globally unique" in describe_kind(mac_kind("00:11:22:33:44:55"))
     assert "broadcast" in describe_kind(mac_kind("ff:ff:ff:ff:ff:ff"))
+
+
+def test_annotate_names_vendor_and_randomised(tmp_path):
+    from arcount.oui import annotate
+    p = tmp_path / "oui.csv"
+    p.write_text('Registry,Assignment,Organization Name,Organization Address\nMA-L,001122,Acme,x\n')
+    o = Oui(p)
+    t = annotate("00:11:22:33:44:55 replaced 02:aa:bb:cc:dd:ee; 00:de:ad:be:ef:66 unknown", 
+                 ["00:11:22:33:44:55", "02:aa:bb:cc:dd:ee", "00:de:ad:be:ef:66"], o)
+    assert "00:11:22:33:44:55 (Acme)" in t and "02:aa:bb:cc:dd:ee (randomised/virtual)" in t
+    assert "00:de:ad:be:ef:66 unknown" in t                      # no vendor, nothing invented
+    assert annotate(t, ["00:11:22:33:44:55"], o) == t            # idempotent

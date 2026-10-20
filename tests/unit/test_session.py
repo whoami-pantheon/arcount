@@ -332,3 +332,15 @@ def test_no_offer_when_auto_disconnect_is_on_or_unconfirmed(tmp_path):
     lan2.run(s2, 2)                                      # real gateway alone answers: unconfirmed
     assert lan2.alerts and not lan2.alerts[-1].confirmed
     assert not any(a.offer_disconnect for a in lan2.alerts)
+
+
+def test_alert_message_names_vendor_of_macs(tmp_path):
+    (tmp_path / "oui.csv").write_text(
+        "Registry,Assignment,Organization Name,Organization Address\nMA-L,00DEAD,EvilCorp,x\n")
+    from arcount.oui import Oui
+    lan, s = trusted_lan(tmp_path)
+    lan.ctx.oui = Oui(tmp_path / "oui.csv")
+    attack(lan, s)
+    msg = lan.alerts[-1].message
+    assert f"{EVIL} (EvilCorp)" in msg
+    assert f"sudo arcount trust {s.profile_id} {EVIL}" in msg          # copy-paste hint stays clean

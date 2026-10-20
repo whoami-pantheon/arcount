@@ -22,7 +22,7 @@ to cut false alarms and optional automatic protection.
 ## Quick start
 
 ```sh
-git clone https://github.com/<you>/arcount.git
+git clone https://github.com/whoami-pantheon/arcount.git
 cd arcount
 sudo ./packaging/install.sh        # checks your system, installs, starts the service
 ```
@@ -57,7 +57,8 @@ arcount status                     # interfaces being watched, their state, gate
 arcount events                     # alerts from the last 24 h   (--since 7d --min-severity medium)
 arcount show <event-id>            # full details of one alert
 arcount networks                   # every network learned so far
-arcount hosts "<network name>"     # devices seen on a network
+arcount hosts                      # devices seen on the network you are on  (--since 15m = "right now")
+arcount hosts "<network name>"     # devices seen on another network
 arcount mac <mac>...               # who made this device? plus where this laptop has seen it
 arcount config show|check|path    # effective settings / validate the file / where it lives
 arcount doctor                     # diagnose problems     (--alert also sends a test popup)
@@ -204,6 +205,18 @@ the running daemon and every interface, and prints what to do about each problem
 
 ## Install elsewhere, upgrade, uninstall
 
+### Upgrading
+```sh
+git pull                                   # or unpack a newer tarball
+sudo arcount update --from .               # --from also takes a tarball; add --dry-run to just check
+```
+It verifies the new code against your config, backs up your history, swaps the program in, restarts
+the service and **rolls back by itself** if the new version does not come up. Your config is never
+changed (new options are listed in `/opt/arcount/lib/arcount/data/arcount.toml.example`). Monitoring
+pauses for a few seconds during the restart. Log out and in (or restart `arcount-notify`) to refresh
+the popup agent. Running `sudo ./packaging/install.sh` again also works.
+Not supported: downgrading across a database change; `update` refuses that rather than corrupt your history.
+
 **Another machine** — on a machine with the repo: `./packaging/make-dist.sh` builds
 `dist/arcount-<version>.tar.gz` and prints its checksum. Copy it over, then:
 ```sh
@@ -253,3 +266,12 @@ tests/lab/run.sh                    # 14-scenario attack lab; rootless; needs sc
 The lab builds gateway / victim / attacker network namespaces on a bridge inside
 `unshare -Urnm` and runs the real daemon against real forged ARP traffic (about 2 minutes).
 Contributors and AI agents: see [`AGENTS.md`](AGENTS.md).
+
+## Documentation
+- [`docs/COMMANDS.md`](docs/COMMANDS.md): every command, flag, file and rule
+- [`src/arcount/data/arcount.toml.example`](src/arcount/data/arcount.toml.example): every setting
+- [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md)
+
+## License
+Apache License 2.0, see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+Copyright 2026 Clive Akporube ([@whoami-pantheon](https://github.com/whoami-pantheon)).

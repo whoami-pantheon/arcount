@@ -279,7 +279,10 @@ tests/lab/run.sh                    # 14-scenario attack lab; rootless; needs sc
 ```
 The lab builds gateway / victim / attacker network namespaces on a bridge inside
 `unshare -Urnm` and runs the real daemon against real forged ARP traffic (about 2 minutes).
-Contributors and AI agents: see [`AGENTS.md`](AGENTS.md).
+Contributing: keep `python3 -m pytest tests/unit` green, use only the standard library at runtime,
+use fake identifiers in fixtures (`02:aa:bb:cc:00:xx`, `HomeWifi`, `10.20.30.0/24`), and make
+anything that changes the machine opt-in and reversible. Releases are signed: see
+`packaging/release.sh`.
 
 ## Documentation
 - [`docs/COMMANDS.md`](docs/COMMANDS.md): every command, flag, file and rule

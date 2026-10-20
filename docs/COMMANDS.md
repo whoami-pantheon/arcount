@@ -180,6 +180,37 @@ reviewing it. Use `--from` with a checkout you have reviewed if you prefer to in
 | `/etc/systemd/system/arcountd.service` | the service unit |
 | `/etc/xdg/autostart/arcount-notify.desktop` | starts the popup agent at login |
 
+## Configuration reference (`/etc/arcount/arcount.toml`)
+Every key, with its default. Omit anything you do not want to change. Edit with
+`sudo arcount config edit --restart`. Unknown keys and wrong types are rejected by `arcount config check`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `interfaces.include` | `[]` | watch only interfaces matching these shell patterns (`["wlan0"]`, `["wlan*","eth*"]`); empty = every eligible one |
+| `interfaces.exclude` | `["docker*","br-*","veth*","virbr*","vmnet*","tun*","tap*"]` | ignored when `include` is set; virtual interfaces that are not real LANs |
+| `detection.learning_seconds` | `120` | how long a NEW network is observed before its gateway is trusted |
+| `detection.conflict_window` | `30` | seconds: two MACs claiming one IP within this window = conflict (R02) |
+| `detection.flipflop_window` | `600` | seconds: an IP alternating between MACs within this = flip-flop (R03) |
+| `detection.unsolicited_threshold` | `5` | unsolicited ARP replies per minute from one MAC before alerting (R08) |
+| `detection.gratuitous_threshold` | `20` | gratuitous ARPs per minute before alerting |
+| `detection.request_match_window` | `5` | seconds a reply may follow our request and still count as solicited |
+| `detection.ether_mismatch_allow` | `[]` | MACs of known MAC-rewriting repeaters/extenders exempt from R05 |
+| `storage.host_ttl_days` | `90` | forget hosts not seen for this long |
+| `storage.event_ttl_days` | `180` | forget old alerts after this long |
+| `response.pin_gateway` | `"off"` | `"trusted"` pins the trusted gateway MAC in the kernel ARP table |
+| `response.disconnect` | `"off"` | `"confirmed_high"` / `"confirmed_critical"` drop the connection on a confirmed gateway attack; `"off"` only offers it in the popup |
+| `response.disconnect_during_learning` | `false` | allow the disconnect response while a new network is still being learned |
+| `alerts.journal.enabled` / `.min_severity` | `true` / `"info"` | systemd journal sink (`journalctl -u arcountd`) |
+| `alerts.socket.enabled` / `.min_severity` | `true` / `"low"` | live feed used by the desktop agent |
+| `alerts.ntfy.enabled` / `.min_severity` / `.server` / `.topic_file` | `false` / `"high"` / `"https://ntfy.sh"` / `"/etc/arcount/secrets.toml"` | phone notifications: **planned, not implemented** (must stay `false`) |
+| `alerts.email.enabled` / `.min_severity` / `.smtp_host` / `.smtp_port` / `.from` / `.to` / `.credentials_file` | `false` / `"high"` / `""` / `587` / `""` / `[]` / `"/etc/arcount/secrets.toml"` | email: **planned, not implemented** (must stay `false`) |
+| `agent.min_severity` | `"medium"` | lowest severity the desktop agent pops up (`--min-severity` overrides) |
+| `updates.check` | `true` | the desktop agent checks GitHub about daily and shows one popup per new release |
+| `updates.repo` | `"whoami-pantheon/arcount"` | GitHub `owner/name` for the check and for `arcount update` |
+| `updates.interval_hours` | `24` | hours between update checks (minimum 1) |
+
+Severities, lowest first: `info`, `low`, `medium`, `high`, `critical`.
+
 ## Alert rules
 | Rule | Meaning |
 |---|---|

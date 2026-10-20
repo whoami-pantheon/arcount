@@ -175,9 +175,13 @@ class Lab:
         return r.returncode, r.stdout, r.stderr
 
     # ---- attacks --------------------------------------------------------------------------------
-    def forge(self, op, psrc, pdst, dmac, hwdst, count=1, inter=0.2, smac=EVIL_MAC):
+    def forge(self, op, psrc, pdst, dmac, hwdst, count=1, inter=0.2, smac=EVIL_MAC, ns="attacker"):
         sh(sys.executable, "-c", FORGE, "lan0", smac, dmac, str(op), psrc, pdst, hwdst,
-           str(count), str(inter), ns="attacker", timeout=60)
+           str(count), str(inter), ns=ns, timeout=60)
+
+    def gateway_announce(self):
+        """The real gateway re-asserts itself (unicast reply to the victim)."""
+        self.forge(2, GW_IP, VICTIM_IP, VICTIM_MAC, VICTIM_MAC, smac=GW_MAC, ns="gw")
 
     def poison_gateway(self, count=1, inter=0.2):
         """arpspoof-style: unicast reply to the victim claiming the gateway's IP."""

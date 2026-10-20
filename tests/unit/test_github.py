@@ -15,7 +15,7 @@ class Resp(io.BytesIO):
 
 
 def patch_open(monkeypatch, payload):
-    monkeypatch.setattr(gh, "_open", lambda url, timeout: Resp(payload if isinstance(payload, bytes)
+    monkeypatch.setattr(gh, "_open", lambda url, timeout, *a: Resp(payload if isinstance(payload, bytes)
                                                               else json.dumps(payload).encode()))
 
 
@@ -62,3 +62,20 @@ def test_network_failure_is_a_clean_error(monkeypatch):
     monkeypatch.setattr(gh, "_open", boom)
     with pytest.raises(gh.GithubError, match="cannot reach GitHub"):
         gh.latest_tag("a/b")
+
+
+def test_release_assets_listing(monkeypatch):
+    patch_open(monkeypatch, {"assets": [{"name": "a.tar.gz", "url": "https://api.github.com/x/1"},
+                                        {"name": "a.tar.gz.sig", "url": "https://api.github.com/x/2"},
+                                        {"junk": 1}]})
+    assert gh.release_assets("a/b", "v1.0.0") == {"a.tar.gz": "https://api.github.com/x/1",
+                                                  "a.tar.gz.sig": "https://api.github.com/x/2"}
+    with pytest.raises(gh.GithubError):
+        gh.release_assets("a/b", "main")
+
+
+def test_asset_download_accepts_github_cdn_hosts(monkeypatch, tmp_path):
+    gh._check_url("https://release-assets.githubusercontent.com/x")
+    gh._check_url("https://objects.githubusercontent.com/x")
+    patch_open(monkeypatch, b"bytes")
+    assert gh.download_asset("https://api.github.com/x/1", tmp_path / "f").read_bytes() == b"bytes"

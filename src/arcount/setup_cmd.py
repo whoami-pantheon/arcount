@@ -72,7 +72,8 @@ def preflight(out: Out, need_systemd=True) -> None:
             ("ip", "iproute2 is required (interface, route and neighbour state)", True),
             ("nmcli", "NetworkManager: network names and the disconnect response", False),
             ("iw", "Wi-Fi BSSID detection (falls back to nmcli)", False),
-            ("notify-send", "desktop popups (libnotify-bin)", False)):
+            ("notify-send", "desktop popups (libnotify-bin)", False),
+            ("ssh-keygen", "verifying signed updates (openssh-client)", False)):
         if shutil.which(tool):
             out.ok(tool)
         elif hard:

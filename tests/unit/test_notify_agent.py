@@ -187,3 +187,27 @@ def test_updates_config_defaults_and_validation(tmp_path):
     f.write_text('[updates]\ninterval_hours = 0\n')
     with pytest.raises(config.ConfigError):
         config.load(f)
+
+
+# ---- follow upgrades -------------------------------------------------------------------
+def test_agent_restarts_itself_onto_new_installed_version(tmp_path):
+    launcher = tmp_path / "arcount-notify"
+    launcher.write_text("#!/bin/sh\n")
+    calls = []
+    here = "/opt/arcount/lib/arcount/notify_agent.py"
+    kw = dict(here=here, running="0.1.0", launcher=str(launcher), execv=lambda *a: calls.append(a))
+    assert na.maybe_restart_into_new_version(["-v"], installed=lambda: "0.2.0", **kw)
+    assert calls == [(str(launcher), [str(launcher), "-v"])]
+    calls.clear()
+    assert not na.maybe_restart_into_new_version([], installed=lambda: "0.1.0", **kw)    # unchanged
+    assert not na.maybe_restart_into_new_version([], installed=lambda: None, **kw)       # unreadable
+    kw["here"] = "/home/dev/checkout/src/arcount/notify_agent.py"
+    assert not na.maybe_restart_into_new_version([], installed=lambda: "0.2.0", **kw)    # dev checkout
+    assert calls == []
+
+
+def test_installed_version_reader(tmp_path):
+    f = tmp_path / "__init__.py"
+    f.write_text('__version__ = "1.2.3"\n')
+    assert na.installed_version(str(f)) == "1.2.3"
+    assert na.installed_version(str(tmp_path / "nope")) is None

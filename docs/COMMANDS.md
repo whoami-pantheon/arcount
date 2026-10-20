@@ -127,22 +127,28 @@ Upgrade an installed Arcount. By default it fetches the **newest release tag fro
 | `--yes`, `-y` | do not ask before downloading and installing (needed when not at a terminal) |
 | `--from DIR\|TARBALL` | install from a local checkout or a `packaging/make-dist.sh` tarball instead of GitHub (sudo) |
 | `--sha256 HEX` | with a tarball: expected checksum (a `<tarball>.sha256` beside it is used automatically) |
+| `--allow-unsigned` | accept a release that has no signature (or when `ssh-keygen` is missing). A signature that is present but **bad** is always refused |
 | `--dry-run` | do every check, change nothing |
 | `--force` | reinstall the same version, or allow a downgrade |
 | `--no-restart` | swap the files but leave the running daemon alone |
 
-What it does, in order: finds the release; downloads it over HTTPS (github.com hosts only, size
-capped, unsafe archive paths rejected); refuses a tag whose contents carry a different version;
-compiles and imports the new code and checks it accepts **your current config**; refuses if your
-history database is from a newer schema; backs the database up to `arcount.db.pre-update`; swaps
-the package in (old copy kept as `/opt/arcount/lib/arcount.prev`); refreshes launchers and the
-systemd unit; restarts the service and waits for the **new version** to answer; if it does not,
-**rolls back** automatically (code, and the database if it was migrated). Your config is never
-modified. The desktop agent keeps running old code until you log out and in.
+What it does, in order:
+1. finds the release and downloads the signed tarball and its `.sig` over HTTPS (github.com hosts only, size capped);
+2. **verifies the signature** with `ssh-keygen -Y verify` against `data/allowed_signers` of the *installed* copy, a key you already trusted before this download;
+3. rejects unsafe archive paths and a tag whose contents carry a different version;
+4. **hands over to the new version's own installer** (so updater fixes apply immediately and old and new modules never mix), which:
+5. compiles and imports the new code and checks it accepts **your current config**;
+6. refuses if your history database is from a newer schema; backs the database up to `arcount.db.pre-update`;
+7. swaps the package in (old copy kept as `/opt/arcount/lib/arcount.prev`), refreshes launchers and the systemd unit;
+8. restarts the service and waits for the **new version** to answer; if it does not, **rolls back** automatically (code, and the database if it was migrated).
 
-**Trust:** GitHub releases are not signed. You are trusting TLS to github.com and the repository
-owner's account, the same as `git pull` + install. That is why it asks first. Use `--from` with a
-checkout you have reviewed if you want to inspect the code before installing.
+Your config is never modified. Running desktop agents notice the new version and restart themselves.
+
+**Trust model:** the root of trust is the publisher's signing key shipped with every install, not
+GitHub. A compromised account or repository cannot publish an update that verifies. Key rotation is
+two-step (a release signed with the old key ships the new `allowed_signers`; the next is signed with
+the new key). If the key is ever lost or leaked, install the fixed version once with `--from` after
+reviewing it. Use `--from` with a checkout you have reviewed if you prefer to inspect the code.
 
 ---
 

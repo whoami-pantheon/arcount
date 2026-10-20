@@ -17,7 +17,9 @@ from . import __version__
 
 API = "https://api.github.com"
 CODELOAD = "https://codeload.github.com"
-ALLOWED_HOSTS = ("api.github.com", "codeload.github.com", "github.com")
+ALLOWED_HOSTS = ("api.github.com", "codeload.github.com", "github.com",
+                 "objects.githubusercontent.com", "release-assets.githubusercontent.com",
+                 "github-releases.githubusercontent.com")
 TAG_RE = re.compile(r"^v?\d+(\.\d+){0,3}$")
 MAX_JSON = 1 << 20
 MAX_TARBALL = 25 << 20
@@ -43,16 +45,16 @@ class _Redirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _open(url: str, timeout: float):
+def _open(url: str, timeout: float, accept: str = "application/vnd.github+json"):
     _check_url(url)
     req = urllib.request.Request(url, headers={
-        "User-Agent": f"arcount/{__version__}", "Accept": "application/vnd.github+json"})
+        "User-Agent": f"arcount/{__version__}", "Accept": accept})
     return urllib.request.build_opener(_Redirect).open(req, timeout=timeout)
 
 
-def _read(url: str, limit: int, timeout: float) -> bytes:
+def _read(url: str, limit: int, timeout: float, accept: str | None = None) -> bytes:
     try:
-        with _open(url, timeout) as r:
+        with (_open(url, timeout, accept) if accept else _open(url, timeout)) as r:
             data = r.read(limit + 1)
     except urllib.error.HTTPError as e:
         raise GithubError(f"GitHub answered {e.code} for {url}"
@@ -83,4 +85,21 @@ def download_tarball(repo: str, tag: str, dest: Path, timeout: float = 60) -> Pa
         raise GithubError(f"not a release tag: {tag!r}")
     data = _read(f"{CODELOAD}/{repo}/tar.gz/refs/tags/{tag}", MAX_TARBALL, timeout)
     dest.write_bytes(data)
+    return dest
+
+
+def release_assets(repo: str, tag: str, timeout: float = 10) -> dict[str, str]:
+    """name -> API download URL of the assets attached to the GitHub release for `tag`."""
+    if not TAG_RE.match(tag):
+        raise GithubError(f"not a release tag: {tag!r}")
+    try:
+        rel = json.loads(_read(f"{API}/repos/{repo}/releases/tags/{tag}", MAX_JSON, timeout))
+    except ValueError:
+        raise GithubError("unexpected answer from GitHub") from None
+    return {a["name"]: a["url"] for a in rel.get("assets", [])
+            if isinstance(a, dict) and "name" in a and "url" in a}
+
+
+def download_asset(url: str, dest: Path, limit: int = MAX_TARBALL, timeout: float = 60) -> Path:
+    dest.write_bytes(_read(url, limit, timeout, accept="application/octet-stream"))
     return dest

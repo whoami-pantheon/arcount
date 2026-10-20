@@ -33,6 +33,7 @@ from pathlib import Path
 from . import config as cfgmod
 from . import github
 from . import setup_cmd as S
+from . import signing
 from .github import version_key
 # Everything the swap-and-restart path needs is imported up front: once lib/arcount is replaced,
 # a lazy import in this still-running process would load NEW modules next to OLD ones.
@@ -157,12 +158,34 @@ def validate(pkg: Path, config: Path, out: S.Out) -> None:
     out.ok("new code imports and accepts your config")
 
 
+class GithubSource:
+    """The network side of an update; replaced by a fake in tests."""
+
+    def latest(self, repo: str) -> str:
+        return github.latest_tag(repo)[0]
+
+    def fetch_signed(self, repo: str, tag: str, tmp: Path):
+        """(tarball, signature) of the release's signed asset, or (None, None) if it has none."""
+        ver = tag.lstrip("v")
+        assets = github.release_assets(repo, tag)
+        name = f"arcount-{ver}.tar.gz"
+        if name not in assets or name + ".sig" not in assets:
+            return None, None
+        return (github.download_asset(assets[name], tmp / name),
+                github.download_asset(assets[name + ".sig"], tmp / (name + ".sig"), 1 << 16))
+
+    def fetch_unsigned(self, repo: str, tag: str, tmp: Path) -> Path:
+        return github.download_tarball(repo, tag, tmp / "unsigned.tar.gz")
+
+
 # ---- the update ------------------------------------------------------------------------
 class Updater:
     def __init__(self, args, run=S._run, health=None, services: bool | None = None,
-                 latest=github.latest_tag, download=github.download_tarball):
+                 source=None, verify=signing.verify, handoff=None):
         self.args = args
-        self.latest, self.download = latest, download
+        self.gh = source or GithubSource()
+        self.verify = verify
+        self.handoff = self._handoff if handoff is None else handoff
         self.staging = getattr(args, "root", None) is not None
         self.root = Path(args.root or "/")
         self.services = (not self.staging and not args.no_restart) if services is None else services
@@ -262,7 +285,7 @@ class Updater:
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             raise UpdateError("cancelled by user")
 
-    # -- main --
+    # -- stage 1: find, download and VERIFY the new version ------------------------------
     def update(self, source: Path | None, tmp: Path) -> int:
         out, a = self.out, self.args
         print("Checking")
@@ -272,13 +295,12 @@ class Updater:
             self._recover_interrupted()
 
         old = read_version(self.cur) or "unknown"
-        origin = tag = None
         if source is None:      # the default: GitHub
             cfg = self._config()
             repo = a.repo or cfg.updates.repo
             origin = f"github.com/{repo}"
             try:
-                tag = a.tag or self.latest(repo)[0]
+                tag = a.tag or self.gh.latest(repo)
                 if a.check:
                     ver = tag.lstrip("v")
                     if version_key(ver) > version_key(old):
@@ -293,7 +315,25 @@ class Updater:
                     print(f"  ok    already at {old}; newest release is {tag}; nothing to do")
                     return 0
                 self._confirm(old, tag, origin)
-                tarball = self.download(repo, tag, tmp / "release.tar.gz")
+                tarball, sig = self.gh.fetch_signed(repo, tag, tmp)
+                if tarball is None:
+                    if not a.allow_unsigned:
+                        raise UpdateError(
+                            f"release {tag} has no signature, so it cannot be verified. Refusing.\n"
+                            f"  (only if you trust the repository without a signature: --allow-unsigned)")
+                    out.warn(f"{tag} is UNSIGNED: trusting HTTPS to {origin} only")
+                    tarball = self.gh.fetch_unsigned(repo, tag, tmp)
+                else:
+                    try:
+                        what = self.verify(tarball, sig, self.cur / "data/allowed_signers")
+                    except signing.SignatureError as e:
+                        if "does not verify" in str(e):       # a BAD signature is never overridable
+                            raise UpdateError(f"{tag}: {e}. Refusing; the download may be tampered with.") from None
+                        if not a.allow_unsigned:
+                            raise UpdateError(f"cannot verify {tag}: {e}") from None
+                        out.warn(f"signature not checked ({e}); trusting HTTPS to {origin} only")
+                    else:
+                        out.ok(f"signature verified: {what}")
             except github.GithubError as e:
                 raise UpdateError(str(e)) from None
             pkg = extract(tarball, tmp / "src", None, out, origin)
@@ -303,16 +343,49 @@ class Updater:
         else:
             if a.check:
                 raise UpdateError("--check looks at GitHub; it cannot be combined with --from")
-            src = source
-            if src.is_file():
-                pkg = extract(src, tmp / "src", a.sha256, out)
-            elif src.is_dir():
-                pkg = find_package(src)
+            if source.is_file():
+                pkg = extract(source, tmp / "src", a.sha256, out)
+            elif source.is_dir():
+                pkg = find_package(source)
             else:
-                raise UpdateError(f"no such file or directory: {src}")
+                raise UpdateError(f"no such file or directory: {source}")
+        if a.staged:
+            return self.install(pkg)
+        return self.handoff(pkg)
+
+    # -- stage 2: hand over to the NEW code ----------------------------------------------
+    def _handoff(self, pkg: Path) -> int:
+        """Run the install with the new version's own code, so a bug fix in `update` takes
+        effect on the very update that delivers it (and old and new modules never mix)."""
+        a = self.args
+        if "def install(self, pkg" not in (pkg / "update_cmd.py").read_text():
+            print("  --    new version predates staged updates; installing with the current code")
+            return self.install(pkg)
+        argv = []
+        if a.sock:
+            argv += ["--sock", a.sock]
+        argv += ["update", "--from", str(pkg), "--staged", "--yes"]
+        for flag, on in (("--force", a.force), ("--dry-run", a.dry_run), ("--no-restart", a.no_restart)):
+            if on:
+                argv.append(flag)
+        if a.root:
+            argv += ["--root", a.root]
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); "
+                "from arcount.cli import main; sys.exit(main(sys.argv[2:]))")
+        print("  --    handing over to the new version's installer")
+        r = subprocess.run([sys.executable, "-I", "-B", "-c", code, str(pkg.parent), *argv],
+                           env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+        if r.returncode == 2:           # its CLI did not understand the hand-over
+            print("  --    new installer refused the hand-over; installing with the current code")
+            return self.install(pkg)
+        return r.returncode
+
+    # -- stage 3: checks, swap, restart, rollback ----------------------------------------
+    def install(self, pkg: Path) -> int:
+        out, a = self.out, self.args
+        old = read_version(self.cur) or "unknown"
         if pkg.resolve() == self.cur.resolve():
             raise UpdateError("the source is the installed copy itself; point --from at the new version")
-
         new = read_version(pkg)
         if not new:
             raise UpdateError(f"cannot read the version from {pkg / '__init__.py'}")
@@ -325,10 +398,10 @@ class Updater:
         if new == old and not a.force:
             print(f"  ok    already at {old}; nothing to do (--force reinstalls the same version)")
             return 0
-        if source is not None and not a.dry_run and not self.staging and os.geteuid() != 0:
-            print("update must run as root: sudo arcount update --from <dir|tarball>")
+        if not a.dry_run and not self.staging and os.geteuid() != 0:
+            print("update must run as root: sudo arcount update")
             return 1
-        out.ok(f"{old} -> {new}" + (f"  (from {origin}, tag {tag})" if origin else ""))
+        out.ok(f"{old} -> {new}")
         validate(pkg, self.cfg, out)
         S.preflight(out, need_systemd=self.services)
         if out.problems:
@@ -375,8 +448,7 @@ Updated {old} -> {new}.
   * Monitoring was interrupted for a few seconds during the restart; known networks resume at once.
   * Your config was not touched. New options are documented in
     {self.cur / 'data/arcount.toml.example'}
-  * The desktop popup agent keeps running the old code until you log out and in
-    (or: pkill -f arcount-notify; arcount-notify &).
+  * Desktop popup agents restart themselves onto the new version within a minute.
   * Undo: sudo arcount update --force --from {self.prev}   (old version kept; history backup at
     {self.db.name}.pre-update)
 Check any time with: arcount doctor""")

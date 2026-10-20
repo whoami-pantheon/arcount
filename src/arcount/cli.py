@@ -480,6 +480,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="run all checks, change nothing")
     p.add_argument("--force", action="store_true", help="reinstall the same version / allow a downgrade")
     p.add_argument("--no-restart", action="store_true", help="swap files but do not restart the service")
+    p.add_argument("--allow-unsigned", action="store_true",
+                   help="install a GitHub release that has no (checkable) signature; use only if you "
+                        "trust the repository itself")
+    p.add_argument("--staged", action="store_true", help=argparse.SUPPRESS)   # internal hand-over
     p.add_argument("--root", help=argparse.SUPPRESS)
     return ap
 

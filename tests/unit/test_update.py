@@ -10,6 +10,7 @@ import pytest
 from arcount import setup_cmd, update_cmd as U
 
 PKG = Path(setup_cmd.PKG)
+OLD = U.read_version(PKG)          # what a fresh staged install reports
 
 
 def install(root):
@@ -29,7 +30,7 @@ def make_source(tmp_path, version="9.9.9", name="new"):
 def ns(root, source=None, **kw):
     d = dict(root=str(root), source=str(source) if source else None, sha256=None, dry_run=False,
              force=False, no_restart=False, sock="/nonexistent", check=False, repo=None, tag=None,
-             yes=False)
+             yes=False, allow_unsigned=False, staged=True)
     d.update(kw)
     return argparse.Namespace(**d)
 
@@ -55,17 +56,17 @@ def test_update_swaps_package_keeps_config_and_previous(root, tmp_path, capsys):
     assert rc == 0
     lib = root / "opt/arcount/lib"
     assert U.read_version(lib / "arcount") == "9.9.9"
-    assert U.read_version(lib / "arcount.prev") == "0.1.0"
+    assert U.read_version(lib / "arcount.prev") == OLD
     assert (root / "etc/arcount/arcount.toml").read_text() == "[detection]\nlearning_seconds = 300\n"
     assert not (lib / "arcount.new").exists()
     assert not list(lib.rglob("__pycache__"))
-    assert "0.1.0 -> 9.9.9" in capsys.readouterr().out
+    assert f"{OLD} -> 9.9.9" in capsys.readouterr().out
 
 
 def test_same_version_is_a_noop_unless_forced(root, tmp_path, capsys):
-    src = make_source(tmp_path, version="0.1.0")
+    src = make_source(tmp_path, version=OLD)
     _, rc = run_update(root, tmp_path, src)
-    assert rc == 0 and "already at 0.1.0" in capsys.readouterr().out
+    assert rc == 0 and f"already at {OLD}" in capsys.readouterr().out
     assert not (root / "opt/arcount/lib/arcount.prev").exists()
     _, rc = run_update(root, tmp_path, src, force=True)
     assert rc == 0 and (root / "opt/arcount/lib/arcount.prev").exists()
@@ -76,7 +77,7 @@ def test_downgrade_refused_without_force(root, tmp_path, capsys):
     up = U.Updater(ns(root, src))
     with pytest.raises(U.UpdateError, match="older"):
         up.update(src, tmp_path)
-    assert U.read_version(root / "opt/arcount/lib/arcount") == "0.1.0"
+    assert U.read_version(root / "opt/arcount/lib/arcount") == OLD
     _, rc = run_update(root, tmp_path, src, force=True)
     assert rc == 0 and U.read_version(root / "opt/arcount/lib/arcount") == "0.0.5"
 
@@ -86,7 +87,7 @@ def test_broken_source_changes_nothing(root, tmp_path):
     (src / "src/arcount/cli.py").write_text("def broken(:\n")
     with pytest.raises(U.UpdateError, match="does not compile"):
         U.Updater(ns(root, src)).update(src, tmp_path)
-    assert U.read_version(root / "opt/arcount/lib/arcount") == "0.1.0"
+    assert U.read_version(root / "opt/arcount/lib/arcount") == OLD
     assert not (root / "opt/arcount/lib/arcount.prev").exists()
 
 
@@ -111,7 +112,7 @@ def test_dry_run_changes_nothing(root, tmp_path, capsys):
     src = make_source(tmp_path)
     _, rc = run_update(root, tmp_path, src, dry_run=True)
     assert rc == 0 and "nothing was changed" in capsys.readouterr().out
-    assert U.read_version(root / "opt/arcount/lib/arcount") == "0.1.0"
+    assert U.read_version(root / "opt/arcount/lib/arcount") == OLD
 
 
 def test_database_newer_than_code_is_refused(root, tmp_path):
@@ -185,10 +186,10 @@ def test_rolls_back_when_new_version_does_not_start(root, tmp_path, capsys):
     src = make_source(tmp_path)
     up = U.Updater(ns(root, src), run=fake_run, health=lambda v: next(results), services=True)
     assert up.update(src, tmp_path) == 1
-    assert U.read_version(root / "opt/arcount/lib/arcount") == "0.1.0"
+    assert U.read_version(root / "opt/arcount/lib/arcount") == OLD
     assert not (root / "opt/arcount/lib/arcount.prev").exists()
     out = capsys.readouterr().out
-    assert "rolling back to 0.1.0" in out and "rolled back to 0.1.0" in out
+    assert f"rolling back to {OLD}" in out and f"rolled back to {OLD}" in out
     assert calls.count(["systemctl", "restart", "arcountd"]) == 2
 
 
@@ -206,70 +207,135 @@ def test_successful_restart_path(root, tmp_path, capsys):
 
 
 # ---- GitHub as the source -------------------------------------------------------------
-def fake_github(tmp_path, tag="v9.9.9", content_version="9.9.9"):
-    (tmp_path / "w").mkdir(exist_ok=True)
-    src = make_source(tmp_path, version=content_version, name=f"gh{len(list(tmp_path.glob('gh*')))}")
-    t = tarball(tmp_path, src)
-    seen = {}
+class FakeGh:
+    def __init__(self, tmp_path, tag="v9.9.9", content_version="9.9.9", signed=True):
+        (tmp_path / "w").mkdir(exist_ok=True)
+        n = len(list(tmp_path.glob("gh*")))
+        self.tarball = tarball(tmp_path, make_source(tmp_path, version=content_version, name=f"gh{n}"))
+        self.sig = tmp_path / "x.sig"
+        self.sig.write_text("sig")
+        self.tag, self.signed, self.calls = tag, signed, []
 
-    def latest(repo):
-        seen["repo"] = repo
-        return tag, tag.lstrip("v")
+    def latest(self, repo):
+        self.calls.append(("latest", repo))
+        return self.tag
 
-    def download(repo, t_, dest):
-        seen["download"] = (repo, t_)
-        shutil.copyfile(t, dest)
-        return dest
-    return latest, download, seen
+    def fetch_signed(self, repo, tag, tmp):
+        self.calls.append(("signed", repo, tag))
+        return (self.tarball, self.sig) if self.signed else (None, None)
 
-
-def gh_updater(root, tmp_path, latest, download, **kw):
-    return U.Updater(ns(root, None, **kw), latest=latest, download=download)
+    def fetch_unsigned(self, repo, tag, tmp):
+        self.calls.append(("unsigned", repo, tag))
+        return self.tarball
 
 
-def test_default_source_is_github_latest_release(root, tmp_path, capsys):
-    latest, download, seen = fake_github(tmp_path)
-    up = gh_updater(root, tmp_path, latest, download)
-    assert up.update(None, tmp_path / "w") == 0
-    assert seen["repo"] == "whoami-pantheon/arcount" and seen["download"] == ("whoami-pantheon/arcount", "v9.9.9")
+def good_verify(f, sig, allowed):
+    return 'Good "arcount-release" signature'
+
+
+def bad_verify(f, sig, allowed):
+    raise U.signing.SignatureError("signature does not verify against the trusted key")
+
+
+def gh_updater(root, gh, verify=good_verify, **kw):
+    return U.Updater(ns(root, None, **kw), source=gh, verify=verify)
+
+
+def test_default_source_is_github_latest_signed_release(root, tmp_path, capsys):
+    gh = FakeGh(tmp_path)
+    assert gh_updater(root, gh).update(None, tmp_path / "w") == 0
+    assert ("signed", "whoami-pantheon/arcount", "v9.9.9") in gh.calls
     assert U.read_version(root / "opt/arcount/lib/arcount") == "9.9.9"
-    assert "HTTPS to github.com/whoami-pantheon/arcount" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "signature verified" in out
+
+
+def test_bad_signature_is_never_installed_even_with_allow_unsigned(root, tmp_path):
+    gh = FakeGh(tmp_path)
+    for flags in ({}, {"allow_unsigned": True}):
+        with pytest.raises(U.UpdateError, match="tampered"):
+            gh_updater(root, gh, bad_verify, **flags).update(None, tmp_path / "w")
+    assert U.read_version(root / "opt/arcount/lib/arcount") == OLD
+
+
+def test_unsigned_release_refused_unless_explicitly_allowed(root, tmp_path, capsys):
+    gh = FakeGh(tmp_path, signed=False)
+    with pytest.raises(U.UpdateError, match="no signature"):
+        gh_updater(root, gh).update(None, tmp_path / "w")
+    assert not any(c[0] == "unsigned" for c in gh.calls)
+    assert gh_updater(root, gh, allow_unsigned=True).update(None, tmp_path / "w") == 0
+    assert "UNSIGNED" in capsys.readouterr().out
+
+
+def test_unverifiable_environment_refused_unless_allowed(root, tmp_path):
+    def no_tool(f, sig, allowed):
+        raise U.signing.SignatureError("ssh-keygen not found")
+    gh = FakeGh(tmp_path)
+    with pytest.raises(U.UpdateError, match="cannot verify"):
+        gh_updater(root, gh, no_tool).update(None, tmp_path / "w")
+    assert gh_updater(root, gh, no_tool, allow_unsigned=True).update(None, tmp_path / "w") == 0
 
 
 def test_github_up_to_date_and_check_mode(root, tmp_path, capsys):
-    latest, download, seen = fake_github(tmp_path, tag="v0.1.0", content_version="0.1.0")
-    assert gh_updater(root, tmp_path, latest, download).update(None, tmp_path / "w") == 0
-    assert "nothing to do" in capsys.readouterr().out and "download" not in seen
-    latest, download, seen = fake_github(tmp_path)
-    assert gh_updater(root, tmp_path, latest, download, check=True).update(None, tmp_path / "w") == 0
-    assert "update available: 0.1.0 -> 9.9.9" in capsys.readouterr().out
-    assert "download" not in seen and U.read_version(root / "opt/arcount/lib/arcount") == "0.1.0"
+    gh = FakeGh(tmp_path, tag=f"v{OLD}", content_version=OLD)
+    assert gh_updater(root, gh).update(None, tmp_path / "w") == 0
+    assert "nothing to do" in capsys.readouterr().out and not any(c[0] == "signed" for c in gh.calls)
+    gh = FakeGh(tmp_path)
+    assert gh_updater(root, gh, check=True).update(None, tmp_path / "w") == 0
+    assert f"update available: {OLD} -> 9.9.9" in capsys.readouterr().out
+    assert not any(c[0] == "signed" for c in gh.calls)
+    assert U.read_version(root / "opt/arcount/lib/arcount") == OLD
 
 
 def test_github_mislabelled_tag_refused(root, tmp_path):
-    latest, download, _ = fake_github(tmp_path, tag="v9.9.9", content_version="1.0.0")
+    gh = FakeGh(tmp_path, tag="v9.9.9", content_version="1.0.0")
     with pytest.raises(U.UpdateError, match="mislabelled"):
-        gh_updater(root, tmp_path, latest, download).update(None, tmp_path / "w")
-    assert U.read_version(root / "opt/arcount/lib/arcount") == "0.1.0"
+        gh_updater(root, gh).update(None, tmp_path / "w")
+    assert U.read_version(root / "opt/arcount/lib/arcount") == OLD
 
 
 def test_github_errors_become_clean_failures(root, tmp_path):
-    def boom(repo):
-        raise U.github.GithubError("cannot reach GitHub: offline")
+    class Down(FakeGh):
+        def latest(self, repo):
+            raise U.github.GithubError("cannot reach GitHub: offline")
     with pytest.raises(U.UpdateError, match="offline"):
-        gh_updater(root, tmp_path, boom, None).update(None, tmp_path / "w")
+        gh_updater(root, Down(tmp_path)).update(None, tmp_path / "w")
 
 
 def test_github_repo_comes_from_config_or_flag(root, tmp_path):
     (root / "etc/arcount/arcount.toml").write_text('[updates]\nrepo = "me/fork"\n')
-    latest, download, seen = fake_github(tmp_path)
-    gh_updater(root, tmp_path, latest, download, check=True).update(None, tmp_path / "w")
-    assert seen["repo"] == "me/fork"
-    gh_updater(root, tmp_path, latest, download, check=True, repo="other/x").update(None, tmp_path / "w")
-    assert seen["repo"] == "other/x"
+    gh = FakeGh(tmp_path)
+    gh_updater(root, gh, check=True).update(None, tmp_path / "w")
+    assert gh.calls[-1] == ("latest", "me/fork")
+    gh_updater(root, gh, check=True, repo="other/x").update(None, tmp_path / "w")
+    assert gh.calls[-1] == ("latest", "other/x")
 
 
 def test_check_cannot_combine_with_from(root, tmp_path):
     src = make_source(tmp_path)
     with pytest.raises(U.UpdateError, match="--check"):
         U.Updater(ns(root, src, check=True)).update(src, tmp_path)
+
+
+# ---- hand-over to the new code ---------------------------------------------------------
+def test_install_is_performed_by_the_new_versions_own_code(root, tmp_path, capfd):
+    """Stage 1 runs old code, but the swap/restart/rollback logic must be the new version's."""
+    src = make_source(tmp_path)
+    marker = src / "src/arcount/update_cmd.py"
+    marker.write_text(marker.read_text().replace(
+        'print("\\nUpdating")', 'print("\\nNEW-INSTALLER-RAN"); print("\\nUpdating")'))
+    assert "NEW-INSTALLER-RAN" in marker.read_text()
+    up = U.Updater(ns(root, src, staged=False))
+    assert up.update(src, tmp_path / "w") == 0
+    out = capfd.readouterr().out
+    assert "handing over" in out and "NEW-INSTALLER-RAN" in out
+    assert U.read_version(root / "opt/arcount/lib/arcount") == "9.9.9"
+
+
+def test_handoff_failure_modes(root, tmp_path, capsys):
+    src = make_source(tmp_path)
+    # a new version that has no staged installer falls back to the current code
+    u = src / "src/arcount/update_cmd.py"
+    u.write_text(u.read_text().replace("def install(self, pkg", "def installx(self, pkg"))
+    assert U.Updater(ns(root, src, staged=False)).update(src, tmp_path) == 0
+    assert "predates staged updates" in capsys.readouterr().out

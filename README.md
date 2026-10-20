@@ -210,14 +210,18 @@ the running daemon and every interface, and prints what to do about each problem
 arcount update --check                     # is there a newer release?  (no sudo)
 sudo arcount update                        # fetch the newest release from GitHub and install it
 ```
-It asks before downloading, verifies the new code against your config, backs up your history, swaps
-the program in, restarts the service and **rolls back by itself** if the new version does not come
-up. Your config is never changed (new options are listed in
+It asks before downloading and **verifies the release's cryptographic signature** against the
+publisher key that was installed with your current copy (needs `ssh-keygen`, from `openssh-client`).
+A release without a valid signature is refused, so a hijacked GitHub account or a tampered download
+cannot get code onto your machine; there is deliberately no way to skip a *bad* signature.
+Then it checks the new code against your config, backs up your history, swaps the program in,
+restarts the service and **rolls back by itself** if the new version does not come up. The swap and
+rollback are carried out by the *new* version's own installer, so fixes to the updater apply to the
+very update that delivers them. Your config is never changed (new options are listed in
 `/opt/arcount/lib/arcount/data/arcount.toml.example`). Monitoring pauses for a few seconds during the
-restart. Log out and in (or restart `arcount-notify`) to refresh the popup agent. To install from a
-checkout or tarball you have reviewed instead: `sudo arcount update --from <dir|tarball>`.
-Releases are not signed: you are trusting HTTPS to github.com and the repository owner, as with
-`git pull`. `update` refuses to downgrade across a database change rather than corrupt your history.
+restart; popup agents switch to the new version by themselves (no log-out needed).
+To install from a checkout or tarball you have reviewed instead: `sudo arcount update --from <dir|tarball>`.
+`update` refuses to downgrade across a database change rather than corrupt your history.
 
 **Update notices.** The desktop agent looks at GitHub's public API about once a day and shows one
 popup per new release. It never installs anything. GitHub sees your IP address and

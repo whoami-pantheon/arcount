@@ -182,6 +182,35 @@ def update_loop(updates: Updates, stop=lambda: False, sleep=time.sleep, check=ch
         sleep(wait)
 
 
+# ---- follow upgrades ----------------------------------------------------------------------
+INSTALLED_INIT = "/opt/arcount/lib/arcount/__init__.py"
+LAUNCHER = "/opt/arcount/bin/arcount-notify"
+
+
+def installed_version(path: str = INSTALLED_INIT) -> str | None:
+    try:
+        with open(path) as f:
+            m = re.search(r'^__version__\s*=\s*"([^"]+)"', f.read(), re.M)
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
+def maybe_restart_into_new_version(argv, here: str = __file__, running: str = __version__,
+                                   installed=installed_version, execv=os.execv,
+                                   launcher: str = LAUNCHER) -> bool:
+    """After `arcount update` the installed code changes under this long-running process; start
+    over on the new code so users never have to log out. Only for the installed copy."""
+    if not os.path.realpath(here).startswith(os.path.dirname(os.path.dirname(INSTALLED_INIT)) + "/"):
+        return False                          # running from a checkout: leave it alone
+    now = installed()
+    if not now or now == running or not os.path.exists(launcher):
+        return False
+    log.info("arcount updated %s -> %s; restarting", running, now)
+    execv(launcher, [launcher, *argv])
+    return True
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="arcount-notify")
     ap.add_argument("--sock", default=DEFAULT_SOCK)
@@ -209,6 +238,7 @@ def main(argv=None) -> int:
             delay = 1.0
         except OSError as e:
             log.debug("daemon unavailable (%s)", e)
+        maybe_restart_into_new_version(sys.argv[1:] if argv is None else argv)
         time.sleep(delay)
         delay = min(delay * 2, 30.0)
 

@@ -1,0 +1,1 @@
+[{"dst":"172.17.0.2","dev":"docker0","lladdr":"02:42:ac:11:00:02","state":["REACHABLE"]},{"dst":"10.20.30.91","dev":"wlan0","lladdr":"02:aa:bb:cc:00:01","state":["DELAY"]}]

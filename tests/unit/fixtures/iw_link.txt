@@ -1,0 +1,11 @@
+Connected to 02:aa:bb:cc:00:01 (on wlan0)
+	SSID: HomeWifi
+	freq: 2437.0
+	RX: 168151994 bytes (139570 packets)
+	TX: 26323397 bytes (64232 packets)
+	signal: -23 dBm
+	rx bitrate: 144.4 MBit/s MCS 15 short GI
+	tx bitrate: 144.4 MBit/s MCS 15 short GI
+	bss flags: short-slot-time
+	dtim period: 2
+	beacon int: 100

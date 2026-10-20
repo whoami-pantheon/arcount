@@ -17,6 +17,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests/lab", "tests/unit"]
 addopts = "-q"
 markers = ["lab: needs root and network namespaces"]

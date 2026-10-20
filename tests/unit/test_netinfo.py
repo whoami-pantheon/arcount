@@ -87,3 +87,11 @@ def test_gather_no_nm_and_iw_fallback():
 def test_gather_command_failure_not_ready():
     s = netinfo.gather("wlan0", lambda cmd, timeout=5.0: None)
     assert not s.ready
+
+
+def test_default_gateway_without_dev_key():
+    # `ip -j route show default dev X` omits "dev" on some iproute2 versions
+    assert netinfo.parse_default_gateway('[{"dst":"default","gateway":"10.0.0.1","flags":[]}]',
+                                         "eth0") == "10.0.0.1"
+    assert netinfo.parse_default_gateway(
+        '[{"dst":"default","gateway":"10.0.0.1","dev":"wlan0"}]', "eth0") == ""

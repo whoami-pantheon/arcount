@@ -133,10 +133,11 @@ def parse_ip_addr(text: str, ifname: str) -> tuple[str, int]:
 
 
 def parse_default_gateway(text: str, ifname: str) -> str:
-    """Lowest-metric default route via this interface."""
+    """Lowest-metric default route via this interface (iproute2 omits "dev" when the query was
+    already filtered by device)."""
     best, best_metric = "", 1 << 31
     for r in json.loads(text or "[]"):
-        if r.get("dev") == ifname and r.get("gateway"):
+        if r.get("dev", ifname) == ifname and r.get("gateway"):
             m = r.get("metric", 0)
             if m < best_metric:
                 best, best_metric = r["gateway"], m

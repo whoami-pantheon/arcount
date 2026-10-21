@@ -164,6 +164,93 @@ def cmd_hosts(args) -> int:
     return 0
 
 
+def fmt_bytes(n) -> str:
+    n = float(n)
+    for unit in ("B", "kB", "MB", "GB", "TB"):
+        if n < 1000 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1000
+
+
+def fmt_bits(bps) -> str:
+    bps = float(bps)
+    for unit in ("bit/s", "kbit/s", "Mbit/s", "Gbit/s"):
+        if bps < 1000 or unit == "Gbit/s":
+            return f"{bps:.0f} {unit}" if unit == "bit/s" else f"{bps:.1f} {unit}"
+        bps /= 1000
+
+
+def _live_rates(r: dict) -> list[list]:
+    rates = (r.get("usage") or {}).get("rates", {})
+    return [[s["iface"], s["profile"] or "-", fmt_bits(rates[s["iface"]]["rx_bps"]),
+             fmt_bits(rates[s["iface"]]["tx_bps"])]
+            for s in r.get("sessions", []) if s["iface"] in rates]
+
+
+def cmd_usage(args) -> int:
+    """Speed and data consumption of this machine, per network."""
+    daemon = {}
+    try:
+        daemon = ctl(args.sock, {"cmd": "status"})
+    except CliError:
+        pass
+    if args.watch:
+        if not daemon.get("usage", {}).get("enabled"):
+            raise CliError("usage tracking is off. Enable it: sudo arcount config edit --restart "
+                           "and set [usage] enabled = true")
+        while True:
+            r = ctl(args.sock, {"cmd": "status"})
+            print("\033[2J\033[H" + table(_live_rates(r), ["IFACE", "NETWORK", "DOWN", "UP"])
+                  + "\n\n(Ctrl-C to stop)", flush=True)
+            time.sleep(2)
+    st = open_store(args, False)
+    if args.profile:
+        profiles = [need_profile(st, args.profile)]
+    elif args.all:
+        profiles = list(st.list_profiles())
+    else:
+        ids = [x["profile_id"] for x in daemon.get("sessions", []) if x.get("profile_id")]
+        profiles = [p for p in (st.get_profile(i) for i in ids) if p]
+        if not profiles:
+            raise CliError("not connected to a known network right now; name one "
+                           "(see `arcount networks`) or use --all")
+    since = time.strftime("%Y-%m-%d", time.localtime(time.time() - (args.days - 1) * 86400))
+    if args.json:
+        print(json.dumps([{"network": p["name"], "id": p["id"],
+                           "days": [dict(day=u["day"], rx=u["rx"], tx=u["tx"])
+                                    for u in st.usage(p["id"], since)],
+                           "top_hosts": [dict(ip=h["ip"], rx=h["rx"], tx=h["tx"])
+                                         for h in st.usage_peers(p["id"], since, args.top or 10)]}
+                          for p in profiles], indent=2))
+        return 0
+    use = daemon.get("usage") or {}
+    if daemon and not use.get("enabled"):
+        print("note: usage tracking is off, so nothing new is being recorded. Turn it on with\n"
+              "      sudo arcount config edit --restart   ([usage] enabled = true)\n")
+    live = _live_rates(daemon) if daemon else []
+    if live:
+        print(table(live, ["IFACE", "NETWORK", "DOWN NOW", "UP NOW"]) + "\n")
+    for n, p in enumerate(profiles):
+        days = st.usage(p["id"], since)
+        print(("\n" if n else "") + f"# {p['name']}  (last {args.days} day{'s' * (args.days != 1)})")
+        rows = [[u["day"], fmt_bytes(u["rx"]), fmt_bytes(u["tx"]), fmt_bytes(u["rx"] + u["tx"])]
+                for u in days]
+        if rows:
+            rows.append(["total", fmt_bytes(sum(u["rx"] for u in days)),
+                         fmt_bytes(sum(u["tx"] for u in days)),
+                         fmt_bytes(sum(u["rx"] + u["tx"] for u in days))])
+        print(table(rows, ["DAY", "DOWNLOADED", "UPLOADED", "TOTAL"]) if rows
+              else "no usage recorded")
+        if args.top:
+            peers = st.usage_peers(p["id"], since, args.top)
+            print()
+            print(table([[h["ip"], fmt_bytes(h["rx"]), fmt_bytes(h["tx"]),
+                          fmt_bytes(h["rx"] + h["tx"])] for h in peers],
+                        ["REMOTE HOST", "DOWNLOADED", "UPLOADED", "TOTAL"]) if peers
+                  else "no per-host data (set [usage] per_host = true)")
+    return 0
+
+
 def cmd_mac(args) -> int:
     """Resolve MAC addresses: vendor, address type, and where this machine has seen them."""
     oui = Oui()
@@ -423,6 +510,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="network name or id (default: the network(s) connected right now)")
     p.add_argument("--since", help="only hosts seen within this long, e.g. 15m, 24h, 7d (default 7d)")
     p.add_argument("--all", action="store_true", help="everything ever seen")
+    p = add("usage", cmd_usage, "this machine's speed and data consumption per network")
+    p.add_argument("profile", nargs="?",
+                   help="network name or id (default: the network(s) connected right now)")
+    p.add_argument("--days", type=int, default=7, help="how many days back, today included (default 7)")
+    p.add_argument("--all", action="store_true", help="every network")
+    p.add_argument("--top", type=int, metavar="N",
+                   help="also list the N remote hosts with the most traffic (needs [usage] per_host)")
+    p.add_argument("--watch", action="store_true", help="live speed, refreshed every 2 s")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
     p = add("events", cmd_events, "recent events")
     p.add_argument("--since", default="24h", help="how far back, e.g. 90s, 30m, 24h, 7d (default 24h)")
     p.add_argument("--min-severity", default="low", choices=[s.name.lower() for s in Severity],

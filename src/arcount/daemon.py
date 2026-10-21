@@ -23,6 +23,7 @@ from .oui import Oui
 from .response import Responder
 from .session import Context, SessionManager
 from .store import Store
+from .usage import UsageService
 
 log = logging.getLogger("arcount")
 WATCHDOG_EVERY = 20.0
@@ -78,6 +79,10 @@ class Daemon:
                            lambda iface: netinfo.gather(iface, use_nm=use_nm), Capture,
                            fresh_neigh, self.responder, self.is_paused, use_nm)
         self.manager = SessionManager(self.ctx, self._register, self._unregister)
+        self.usage = UsageService(
+            self.store, self.clock,
+            lambda: {i: s.profile_id for i, s in self.manager.sessions.items()},
+            self.sel, lambda: self.cfg.usage)
         self.netwatch = NetWatch(self.clock)
         self._nw_fd = None
         self.control = ControlServer(self.sel, str(run_dir / "arcount.sock"), self,
@@ -102,6 +107,7 @@ class Daemon:
                 "paused_until": self.paused_until if self.is_paused() else None,
                 "response": {"pin_gateway": self.cfg.response.pin_gateway,
                              "disconnect": self.cfg.response.disconnect},
+                "usage": self.usage.status(),
                 "sessions": self.manager.status()}
 
     def test_alert(self) -> None:
@@ -185,6 +191,8 @@ class Daemon:
             kind, obj = key.data
             if kind == "session":
                 obj.on_readable()
+            elif kind == "usage-peers":
+                self.usage.on_readable(obj)
             elif kind == "netwatch":
                 self.netwatch.on_readable()
             elif kind == "ctl-listen":
@@ -203,6 +211,7 @@ class Daemon:
             self.manager.handle(ev)
         self._sync_netwatch_fd()
         self.manager.tick()
+        self.usage.tick()
         self.control.sweep()
         self._housekeeping()
 
@@ -223,12 +232,14 @@ class Daemon:
         if now - self._last_prune >= PRUNE_EVERY:
             self._last_prune = now
             h, e = self.store.prune(self.clock.wall(), self.cfg.storage.host_ttl_days,
-                                    self.cfg.storage.event_ttl_days)
+                                    self.cfg.storage.event_ttl_days,
+                                    self.cfg.usage.ttl_days)
             log.info("pruned %d hosts, %d events", h, e)
 
     def shutdown(self) -> None:
         log.info("shutting down")
         self.manager.stop_all()            # unpins
+        self.usage.close()
         self.netwatch.close()
         self.control.close()
         self.store.close()

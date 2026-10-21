@@ -59,6 +59,7 @@ arcount show <event-id>            # full details of one alert
 arcount networks                   # every network learned so far
 arcount hosts                      # devices seen on the network you are on  (--since 15m = "right now")
 arcount hosts "<network name>"     # devices seen on another network
+arcount usage                      # this laptop's speed and data used per network (opt-in, see below)
 arcount mac <mac>...               # who made this device? plus where this laptop has seen it
 arcount config show|check|path    # effective settings / validate the file / where it lives
 arcount doctor                     # diagnose problems     (--alert also sends a test popup)
@@ -260,6 +261,19 @@ network. A rule engine (R01–R11) judges every frame; suspicious findings are v
 probes before being reported. Alerts go to the journal and, over a root-owned local socket, to a
 per-user agent that shows popups. Hardened unit (`systemd-analyze security`: 3.0), only
 `CAP_NET_RAW` and `CAP_NET_ADMIN`. Details: [`docs/DESIGN.md`](docs/DESIGN.md).
+
+## Traffic usage (optional)
+Arcount can show how much data **this laptop** uses on each network and how fast it is going right
+now. It is off by default; turn it on with `sudo arcount config edit --restart` and set
+`[usage] enabled = true`. Then:
+```sh
+arcount usage                 # live speed + the last 7 days for the network you are on
+arcount usage --watch         # live up/down speed
+arcount usage --all --days 30 # every network, a month
+arcount usage --top 10        # busiest remote hosts (needs [usage] per_host = true)
+```
+It uses the kernel's own counters, so it is cheap. It does **not** show other devices' traffic: a
+normal Wi-Fi or switched-Ethernet client never receives it, and Arcount will not ARP-spoof to get it.
 
 ## Limitations — please read
 - **IPv4 only.** IPv6 attacks (rogue router advertisements, NDP spoofing) are not covered yet.

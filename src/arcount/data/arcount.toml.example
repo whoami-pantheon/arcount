@@ -86,3 +86,12 @@ min_severity = "medium"
 check = true
 repo = "whoami-pantheon/arcount"  # GitHub owner/name that `arcount update` and the notice look at
 interval_hours = 24
+
+# --- Traffic usage (off by default) -------------------------------------------------------
+[usage]
+# Show this laptop's own speed and data consumption per network: `arcount usage`.
+# Uses the kernel's interface counters (cheap). Other devices' traffic is not visible to a client.
+enabled = false
+sample_seconds = 5               # how often counters are read (minimum 1)
+per_host = false                 # also count bytes per remote IP (extra raw socket; costs CPU)
+ttl_days = 400                   # forget usage history older than this

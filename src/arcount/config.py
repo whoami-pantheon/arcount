@@ -90,6 +90,14 @@ class Updates:
     interval_hours: float = 24
 
 
+@dataclass
+class Usage:
+    enabled: bool = False                   # opt-in: measure this laptop's own traffic
+    sample_seconds: float = 5
+    per_host: bool = False                  # also count bytes per remote IP (costs CPU)
+    ttl_days: int = 400
+
+
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 
 
@@ -102,6 +110,7 @@ class Config:
     alerts: Alerts = field(default_factory=Alerts)
     agent: Agent = field(default_factory=Agent)
     updates: Updates = field(default_factory=Updates)
+    usage: Usage = field(default_factory=Usage)
 
 
 def _fill(obj, data: dict, path: str):
@@ -153,6 +162,10 @@ def validate(cfg: Config) -> None:
         raise ConfigError("[updates] repo must look like 'owner/name'")
     if cfg.updates.interval_hours < 1:
         raise ConfigError("[updates] interval_hours must be at least 1")
+    if cfg.usage.sample_seconds < 1:
+        raise ConfigError("[usage] sample_seconds must be at least 1")
+    if cfg.usage.ttl_days <= 0:
+        raise ConfigError("[usage] ttl_days must be positive")
     d = cfg.detection
     for key in ("learning_seconds", "conflict_window", "flipflop_window",
                 "unsolicited_threshold", "gratuitous_threshold", "request_match_window"):

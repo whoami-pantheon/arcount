@@ -1,4 +1,5 @@
 """PLAN §10.2 scenarios, run against the real daemon in a rootless network lab."""
+import json
 import time
 
 import pytest
@@ -150,3 +151,21 @@ def test_12_link_flap_and_address_change_reidentify(make_lab):
     wait_until(lambda: "re-identifying" in lab.daemon_log(), 15, what="re-identify")
     lab.wait_state("monitoring", 25)
     assert lab.daemon.poll() is None
+
+
+def test_15_usage_counts_own_traffic_per_network_and_host(make_lab):
+    lab = make_lab("[usage]\nenabled = true\nsample_seconds = 1\nper_host = true\n")
+    s = monitoring(lab)
+    time.sleep(2.5)                                  # baseline samples
+    sh("ping", "-c", "200", "-i", "0.01", "-s", "1000", "-q", GW_IP, ns="victim", timeout=60)
+    st = wait_until(lambda: (lab.status() or {}).get("usage", {}).get("per_host") and lab.status(),
+                    10, what="usage status")
+    assert st["usage"]["enabled"]
+    lab.stop_daemon()                                # shutdown flushes to the database
+    rc, out, err = lab.cli("usage", "--all", "--top", "3", "--json")
+    assert rc == 0, (out, err)
+    net = json.loads(out)[0]
+    day = net["days"][0]
+    assert day["rx"] > 150_000 and day["tx"] > 150_000, day          # 200 x ~1 kB each way
+    top = net["top_hosts"][0]
+    assert top["ip"] == GW_IP and top["rx"] > 150_000 and top["tx"] > 150_000, top

@@ -42,6 +42,24 @@ Devices seen on a network, with vendor, first/last seen and how many times.
 "Seen" means an ARP frame from the device was observed; a quiet device appears when it next talks.
 `arcount hosts --since 15m` is the closest thing to "who is on the network right now".
 
+### `arcount usage [<network>] [options]`
+This machine's own speed and data consumption, per network. **Off by default**: set
+`[usage] enabled = true` (`sudo arcount config edit --restart`). It reads the kernel's interface
+counters, so it costs essentially nothing and needs no packet capture. It cannot see other devices'
+traffic (a normal client never receives it; see README, Limitations).
+| Option | Meaning |
+|---|---|
+| *(none)* | live speed of the interface(s) you are on, plus a per-day table (downloaded / uploaded / total) for the network(s) connected right now |
+| `<network>` | name or id of another network |
+| `--all` | every network |
+| `--days N` | how many days back, today included (default 7) |
+| `--top N` | also list the N remote hosts with the most traffic (needs `[usage] per_host = true`) |
+| `--watch` | live up/down speed, refreshed every 2 s (Ctrl-C to stop) |
+| `--json` | machine-readable output |
+
+Data is written to the history database about once a minute, so the newest figures lag slightly.
+A network switch can misattribute at most one sample interval (`sample_seconds`) of traffic.
+
 ### `arcount events [options]`
 Recorded alerts, newest first.
 | Option | Meaning |
@@ -208,6 +226,10 @@ Every key, with its default. Omit anything you do not want to change. Edit with
 | `updates.check` | `true` | the desktop agent checks GitHub about daily and shows one popup per new release |
 | `updates.repo` | `"whoami-pantheon/arcount"` | GitHub `owner/name` for the check and for `arcount update` |
 | `updates.interval_hours` | `24` | hours between update checks (minimum 1) |
+| `usage.enabled` | `false` | measure this machine's traffic per network (`arcount usage`); opt-in |
+| `usage.sample_seconds` | `5` | how often the counters are read (minimum 1) |
+| `usage.per_host` | `false` | also count bytes per remote IPv4 address (an extra raw socket; costs CPU on fast links) |
+| `usage.ttl_days` | `400` | forget usage history older than this |
 
 Severities, lowest first: `info`, `low`, `medium`, `high`, `critical`.
 

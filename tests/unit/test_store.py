@@ -20,7 +20,7 @@ def test_migrate_idempotent(tmp_path):
     p = tmp_path / "t.db"
     Store(p).close()
     s = Store(p)
-    assert s.db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "1"
+    assert s.db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "2"
     s.close()
 
 

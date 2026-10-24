@@ -26,7 +26,8 @@ def test_missing_explicit_path_errors(tmp_path):
     ("[bogus]\nx=1", "unknown key"),
     ("[detection]\nlearning_seconds='a'", "expected"),
     ("[detection]\nconflict_window=0", "positive"),
-    ("[alerts.ntfy]\nenabled=true", "not implemented"),
+    ("[alerts.ntfy]\nenabled=true\nserver='http://x'", "https"),
+    ("[alerts.email]\nenabled=true", "smtp_host"),
     ("[alerts.socket]\nmin_severity='loud'", "min_severity"),
     ("this is not toml", "Expected"),
 ])

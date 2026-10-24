@@ -198,6 +198,17 @@ def run(args) -> int:
                f"disconnect={r_.disconnect}")
         i = cfg.interfaces
         out.ok(f"interfaces: " + (f"only {i.include}" if i.include else f"all except {i.exclude}"))
+        from .alerts.remote import SecretsError, load_secrets
+        for label, sink, path, section_name in (
+                ("phone (ntfy)", cfg.alerts.ntfy, cfg.alerts.ntfy.topic_file, "ntfy"),
+                ("email", cfg.alerts.email, cfg.alerts.email.credentials_file, "email")):
+            if sink.enabled:
+                try:
+                    load_secrets(path, section_name)
+                    out.ok(f"{label} alerts: enabled, secrets file is private"
+                           + ("" if sink.redact else "; redact is OFF, network details are sent"))
+                except SecretsError as e:
+                    out.fail(f"{label} alerts are enabled but will not work: {e}")
     except config.ConfigError as e:
         cfg = config.Config()
         out.fail(f"{cfg_path}: {e}")

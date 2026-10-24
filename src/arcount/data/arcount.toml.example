@@ -59,19 +59,21 @@ min_severity = "info"
 [alerts.socket]                  # live feed used by the desktop notifier
 min_severity = "low"
 
-[alerts.ntfy]                    # phone notifications - planned, not implemented yet
+[alerts.ntfy]                    # phone notifications; the topic lives in the secrets file
 enabled = false
 server = "https://ntfy.sh"
 topic_file = "/etc/arcount/secrets.toml"
+redact = true                    # no network name / MAC / IP leaves this machine
 min_severity = "high"
 
-[alerts.email]                   # email - planned, not implemented yet
+[alerts.email]                   # email over SMTP with verified TLS
 enabled = false
 smtp_host = ""
 smtp_port = 587
 from = ""
 to = []
 credentials_file = "/etc/arcount/secrets.toml"
+redact = true
 min_severity = "high"
 
 [agent]                          # the per-user desktop popup agent (arcount-notify)

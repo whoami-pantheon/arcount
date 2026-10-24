@@ -232,8 +232,8 @@ Every key, with its default. Omit anything you do not want to change. Edit with
 | `response.disconnect_during_learning` | `false` | allow the disconnect response while a new network is still being learned |
 | `alerts.journal.enabled` / `.min_severity` | `true` / `"info"` | systemd journal sink (`journalctl -u arcountd`) |
 | `alerts.socket.enabled` / `.min_severity` | `true` / `"low"` | live feed used by the desktop agent |
-| `alerts.ntfy.enabled` / `.min_severity` / `.server` / `.topic_file` | `false` / `"high"` / `"https://ntfy.sh"` / `"/etc/arcount/secrets.toml"` | phone notifications: **planned, not implemented** (must stay `false`) |
-| `alerts.email.enabled` / `.min_severity` / `.smtp_host` / `.smtp_port` / `.from` / `.to` / `.credentials_file` | `false` / `"high"` / `""` / `587` / `""` / `[]` / `"/etc/arcount/secrets.toml"` | email: **planned, not implemented** (must stay `false`) |
+| `alerts.ntfy.enabled` / `.min_severity` / `.server` / `.topic_file` / `.redact` | `false` / `"high"` / `"https://ntfy.sh"` / `"/etc/arcount/secrets.toml"` / `true` | phone notifications through ntfy; `server` must be `https://`; the topic (and optional token) is read from `topic_file`; `redact = true` sends no network name, MAC or IP (see Remote alerts) |
+| `alerts.email.enabled` / `.min_severity` / `.smtp_host` / `.smtp_port` / `.from` / `.to` / `.credentials_file` / `.redact` | `false` / `"high"` / `""` / `587` / `""` / `[]` / `"/etc/arcount/secrets.toml"` / `true` | email over SMTP with certificate-verified TLS (STARTTLS, or implicit TLS on port 465); `smtp_host`, `from` and `to` are required; login from `credentials_file`; `redact` as for ntfy |
 | `agent.min_severity` | `"medium"` | lowest severity the desktop agent pops up (`--min-severity` overrides) |
 | `updates.check` | `true` | the desktop agent checks GitHub about daily and shows one popup per new release |
 | `updates.repo` | `"whoami-pantheon/arcount"` | GitHub `owner/name` for the check and for `arcount update` |
@@ -246,6 +246,26 @@ Every key, with its default. Omit anything you do not want to change. Edit with
 | `usage.metered_warn_mb` | `0` | same, but for networks NetworkManager marks metered (`nmcli connection modify <name> connection.metered yes`); 0 = use `warn_mb` |
 
 Severities, lowest first: `info`, `low`, `medium`, `high`, `critical`.
+
+## Remote alerts (phone and email)
+Both are off by default and only forward alerts at or above their `min_severity` (default `high`).
+1. Create the secrets file, readable by root only. Arcount refuses to use it otherwise:
+```sh
+sudo install -m 600 /dev/null /etc/arcount/secrets.toml
+sudoedit /etc/arcount/secrets.toml
+```
+```toml
+[ntfy]
+topic = "pick-a-long-random-name"     # anyone who knows the topic can read your alerts
+token = ""                            # optional access token (private ntfy servers)
+
+[email]
+user = "you@example.org"
+password = "app password"
+```
+2. Enable the sink in `/etc/arcount/arcount.toml` (`sudo arcount config edit --restart`), then `arcount test-alert`.
+
+Privacy: with the default `redact = true` the message that leaves your laptop says only "high alert, rule R01, open your laptop"; it contains no SSID, network name, MAC or IP. Set `redact = false` only for a server you run yourself. Delivery never blocks detection: messages are queued (100 at most) and retried after 5 s, 30 s, 5 min and 30 min, then dropped with a log line. If the secrets file is missing or too open, the sink is skipped and the journal says `remote alerts are NOT active`; local alerts keep working.
 
 ## Alert rules
 | Rule | Meaning |

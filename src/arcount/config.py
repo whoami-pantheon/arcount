@@ -57,6 +57,7 @@ class NtfySink(Sink):
     min_severity: str = "high"
     server: str = "https://ntfy.sh"
     topic_file: str = "/etc/arcount/secrets.toml"
+    redact: bool = True                     # send no network name / MAC / IP off this machine
 
 
 @dataclass
@@ -68,6 +69,7 @@ class EmailSink(Sink):
     from_addr: str = ""
     to: list[str] = field(default_factory=list)
     credentials_file: str = "/etc/arcount/secrets.toml"
+    redact: bool = True
 
 
 @dataclass
@@ -156,10 +158,13 @@ def validate(cfg: Config) -> None:
             raise ConfigError(f"[{name}] min_severity must be one of {SEVERITIES}")
     if cfg.agent.min_severity not in SEVERITIES:
         raise ConfigError(f"[agent] min_severity must be one of {SEVERITIES}")
-    # v1: phone/email are seams only.
-    for name, s in sinks[2:]:
-        if s.enabled:
-            raise ConfigError(f"[{name}] is not implemented in v1; set enabled = false")
+    if cfg.alerts.ntfy.enabled and not cfg.alerts.ntfy.server.startswith("https://"):
+        raise ConfigError("[alerts.ntfy] server must be an https:// URL")
+    em = cfg.alerts.email
+    if em.enabled and not (em.smtp_host and em.from_addr and em.to):
+        raise ConfigError("[alerts.email] needs smtp_host, from and to")
+    if em.smtp_port not in range(1, 65536):
+        raise ConfigError("[alerts.email] smtp_port must be 1-65535")
     if not REPO_RE.match(cfg.updates.repo):
         raise ConfigError("[updates] repo must look like 'owner/name'")
     if cfg.updates.interval_hours < 1:

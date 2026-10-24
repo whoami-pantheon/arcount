@@ -135,9 +135,15 @@ def build_sinks(cfg) -> tuple[list[Sink], "SocketSink"]:
         sinks.append(JournalSink(sev(a.journal.min_severity)))
     if a.socket.enabled:
         sinks.append(sock)
-    if a.ntfy.enabled:
-        sinks.append(NtfySink(sev(a.ntfy.min_severity), a.ntfy.server, a.ntfy.topic_file))
-    if a.email.enabled:
-        sinks.append(EmailSink(sev(a.email.min_severity), a.email.smtp_host, a.email.smtp_port,
-                               a.email.from_addr, a.email.to, a.email.credentials_file))
+    from .remote import SecretsError
+    try:
+        if a.ntfy.enabled:
+            sinks.append(NtfySink(sev(a.ntfy.min_severity), a.ntfy.server, a.ntfy.topic_file,
+                                  a.ntfy.redact))
+        if a.email.enabled:
+            sinks.append(EmailSink(sev(a.email.min_severity), a.email.smtp_host, a.email.smtp_port,
+                                   a.email.from_addr, a.email.to, a.email.credentials_file,
+                                   a.email.redact))
+    except (SecretsError, ValueError) as e:
+        log.error("remote alerts are NOT active: %s", e)      # keep local alerts working
     return sinks, sock

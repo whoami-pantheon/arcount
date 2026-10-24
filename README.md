@@ -133,6 +133,11 @@ recorded (flagged `paused`) but nothing alerts and no response fires.
 
 ---
 
+## Alerts on your phone or by email (optional)
+Set `[alerts.ntfy]` or `[alerts.email]` (off by default). Secrets (the ntfy topic, SMTP password)
+live in a root-only `/etc/arcount/secrets.toml`, TLS certificates are always verified, and by default
+the message contains no network name, MAC or IP. Setup steps: [`docs/COMMANDS.md`](docs/COMMANDS.md#remote-alerts-phone-and-email).
+
 ## Configuration
 
 Config file: `/etc/arcount/arcount.toml` (created by setup, never overwritten on upgrade). Every
@@ -300,7 +305,6 @@ a network's usage along with the rest of its history.
   history alone. Look at "SITE: new" and unfamiliar gateway vendors.
 - **Detection, not a shield.** Use a VPN and HTTPS; Arcount tells you the local network is being
   tampered with.
-- Phone (ntfy) and email alerts are placeholders and not implemented.
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's planned.
 
 ## Development

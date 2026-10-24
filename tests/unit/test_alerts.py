@@ -4,9 +4,7 @@ import pytest
 
 from arcount import config
 from arcount.alerts import Alert, Dispatcher, Severity, build_sinks
-from arcount.alerts.email import EmailSink
 from arcount.alerts.journal import JournalSink
-from arcount.alerts.ntfy import NtfySink
 from arcount.alerts.socket import SocketSink
 from arcount.clock import FakeClock
 from arcount.store import Store
@@ -156,14 +154,6 @@ def test_socket_sink_backlog_replay():
     s.unsubscribe(c)
     s.send(alert(Severity.HIGH))
     assert len(pushed) == 2
-
-
-def test_seam_sinks_refuse_to_start():
-    for sink in (NtfySink(Severity.HIGH), EmailSink(Severity.HIGH)):
-        with pytest.raises(NotImplementedError):
-            sink.send(alert())
-        with pytest.raises(RuntimeError, match="not implemented"):
-            Dispatcher(None, [sink], FakeClock())
 
 
 def test_build_sinks_defaults():

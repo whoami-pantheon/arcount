@@ -108,3 +108,58 @@ def test_router_with_zero_lifetime_and_known_gateway_are_quiet(tmp_path):
     feed_ra(lan, s, mac="00:11:22:33:44:01")               # the gateway itself
     assert "R14" not in lan.rules()
     lan.store.close()
+
+
+# ---- R15 watch list, names, report ------------------------------------------------
+def test_unnamed_new_device_alerts_only_on_networks_with_named_devices(tmp_path):
+    from lan import GW_IP
+    lan, s = trusted_lan(tmp_path)
+    pid = s.profile_id
+    s.stop()
+    s = lan.session(); lan.run(s, 3)
+    lan.cap.inject("02:aa:bb:cc:00:21", "10.0.0.21", op=1, tpa=GW_IP)
+    lan.run(s, 0.3)
+    assert "R15" not in lan.rules()                      # no names yet: only informational R10
+    lan.store.see_host(pid, "10.0.0.30", "02:aa:bb:cc:00:30", lan.clock.wall())
+    lan.store.set_device_name("02:aa:bb:cc:00:30", "Test laptop", 1.0)
+    lan.cap.inject("02:aa:bb:cc:00:22", "10.0.0.22", op=1, tpa=GW_IP)
+    lan.run(s, 0.3)
+    r15 = [a for a in lan.alerts if "R15" in a.rules]
+    assert len(r15) == 1 and "10.0.0.22" in r15[0].message
+    lan.cap.inject("02:aa:bb:cc:00:30", "10.0.0.31", op=1, tpa=GW_IP)    # the named one: quiet
+    lan.run(s, 0.3)
+    assert lan.rules().count("R15") == 1
+    lan.store.close()
+
+
+def test_device_names_roundtrip(tmp_path):
+    from arcount.store import Store
+    st = Store(tmp_path / "n.db")
+    st.set_device_name("02:aa:bb:cc:00:01", "Phone", 1.0)
+    st.set_device_name("02:aa:bb:cc:00:01", "Anna's phone", 2.0)
+    assert st.device_names() == {"02:aa:bb:cc:00:01": "Anna's phone"}
+    assert st.del_device_name("02:aa:bb:cc:00:01") and not st.del_device_name("02:aa:bb:cc:00:01")
+    st.close()
+
+
+def test_name_and_report_commands(tmp_path, capsys):
+    import time
+    from arcount import cli
+    from arcount.store import Store
+    db = str(tmp_path / "r.db")
+    st = Store(db)
+    pid = st.create_profile("wifi", "HomeWifi 10.20.30.0/24", "HomeWifi", "10.20.30.0/24",
+                            "10.20.30.1", time.time())
+    st.see_host(pid, "10.20.30.7", "02:aa:bb:cc:00:07", time.time())
+    st.add_usage(pid, time.strftime("%Y-%m-%d"), 5_000_000, 1_000_000)
+    st.close()
+    args = ["--db", db, "--sock", str(tmp_path / "none.sock")]
+    assert cli.main(args + ["name"]) == 0
+    assert "no named devices" in capsys.readouterr().out
+    st = Store(db); st.set_device_name("02:aa:bb:cc:00:07", "Printer", 1.0); st.close()
+    assert cli.main(args + ["name"]) == 0 and "Printer" in capsys.readouterr().out
+    assert cli.main(args + ["report"]) == 0
+    out = capsys.readouterr().out
+    assert "HomeWifi" in out and "Printer" in out and "5.0 MB down" in out
+    assert cli.main(args + ["report", "--json"]) == 0
+    assert '"new_devices"' in capsys.readouterr().out

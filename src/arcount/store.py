@@ -5,7 +5,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA_V1 = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
@@ -51,7 +51,11 @@ CREATE TABLE usage_peers(
   PRIMARY KEY(profile_id, day, ip));
 """
 
-_MIGRATIONS = {1: _SCHEMA_V1, 2: _SCHEMA_V2}
+_SCHEMA_V3 = """
+CREATE TABLE device_names(mac TEXT PRIMARY KEY, name TEXT NOT NULL, created REAL);
+"""
+
+_MIGRATIONS = {1: _SCHEMA_V1, 2: _SCHEMA_V2, 3: _SCHEMA_V3}
 GW_STATES = ("provisional", "trusted", "user_trusted", "rejected")
 KNOWN_GW_STATES = ("provisional", "trusted", "user_trusted")
 
@@ -321,6 +325,25 @@ class Store:
         return self.db.execute(
             "SELECT ip, SUM(rx) rx, SUM(tx) tx FROM usage_peers WHERE profile_id=? AND day>=? "
             "GROUP BY ip ORDER BY SUM(rx)+SUM(tx) DESC LIMIT ?", (pid, since_day, limit)).fetchall()
+
+    # ---- device names -----------------------------------------------------
+    def set_device_name(self, mac, name, now) -> None:
+        self.db.execute("INSERT INTO device_names VALUES(?,?,?) "
+                        "ON CONFLICT(mac) DO UPDATE SET name=excluded.name", (mac, name, now))
+        self.db.commit()
+
+    def del_device_name(self, mac) -> bool:
+        n = self.db.execute("DELETE FROM device_names WHERE mac=?", (mac,)).rowcount
+        self.db.commit()
+        return n > 0
+
+    def device_names(self) -> dict[str, str]:
+        return {r["mac"]: r["name"] for r in self.db.execute("SELECT mac,name FROM device_names")}
+
+    def new_hosts(self, pid, since) -> list[sqlite3.Row]:
+        self.flush_hosts()
+        return self.db.execute("SELECT ip, mac, first_seen FROM hosts WHERE profile_id=? AND "
+                               "first_seen>=? ORDER BY first_seen", (pid, since)).fetchall()
 
     # ---- maintenance ----------------------------------------------------
     def prune(self, now, host_ttl_days, event_ttl_days, usage_ttl_days=None) -> tuple[int, int]:

@@ -60,6 +60,8 @@ arcount networks                   # every network learned so far
 arcount hosts                      # devices seen on the network you are on  (--since 15m = "right now")
 arcount hosts "<network name>"     # devices seen on another network
 arcount usage                      # this laptop's speed and data used per network (opt-in, see below)
+arcount report                     # last 7 days: alerts, new devices, data used   (--days 30)
+arcount name                       # list the names you gave devices
 arcount mac <mac>...               # who made this device? plus where this laptop has seen it
 arcount config show|check|path    # effective settings / validate the file / where it lives
 arcount doctor                     # diagnose problems     (--alert also sends a test popup)
@@ -68,6 +70,7 @@ Commands that **change** things need `sudo`:
 ```sh
 sudo arcount trust  "<network>" <mac>   # accept a new gateway (e.g. you replaced your router)
 sudo arcount reject "<network>" <mac>   # mark a MAC as hostile: always critical if seen
+sudo arcount name aa:bb:cc:dd:ee:ff "Anna's phone"   # name a device (--remove to clear)
 sudo arcount rename "<network>" "Home"  # friendlier name
 sudo arcount forget "<network>"         # delete a network and its history
 sudo arcount pause --minutes 30         # silence alerts/responses (see below); resume with `resume`
@@ -110,6 +113,7 @@ everything is in the journal (`journalctl -u arcountd`) and `arcount events`.
 | R12 | A known network was served by a DHCP server it has never used (possible rogue DHCP) |
 | R13 | Same network name, but the access point's vendor matches none you used there before (possible evil twin) |
 | R14 | An IPv6 router advertised itself that this network never had (possible rogue router advertisement) |
+| R15 | A new device you have not named joined a network where you named devices |
 
 Gateway findings are **confirmed** by an active probe (about 1.5 s) and marked
 "Confirmed by active probe" if a second device answers or the forgery repeats.
@@ -260,7 +264,7 @@ What setup installs: program in `/opt/arcount`, config in `/etc/arcount`, histor
 
 A root systemd service listens for ARP on each interface (raw `AF_PACKET`, no external tools),
 watches interface/route changes to notice networks coming and going, and keeps a SQLite history per
-network. A rule engine (R01–R14) judges every frame; suspicious findings are verified with live ARP
+network. A rule engine (R01–R15) judges every frame; suspicious findings are verified with live ARP
 probes before being reported. Alerts go to the journal and, over a root-owned local socket, to a
 per-user agent that shows popups. Hardened unit (`systemd-analyze security`: 3.0), only
 `CAP_NET_RAW` and `CAP_NET_ADMIN`. Details: [`docs/DESIGN.md`](docs/DESIGN.md).

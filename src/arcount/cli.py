@@ -202,16 +202,77 @@ def cmd_hosts(args) -> int:
             raise CliError("not connected to a known network right now; name one "
                            "(see `arcount networks`)")
     oui = Oui()
+    names = st.device_names()
     span = 7 * 86400 if args.since is None else parse_duration(args.since)
     cutoff = 0 if args.all else time.time() - span
     window = "" if args.all else f"  (seen in the last {args.since or '7d'}; --all for everything)"
     for n, p in enumerate(profiles):
-        rows = [[h["ip"], h["mac"], label(oui, h["mac"])[:30], fmt_ts(h["first_seen"]),
+        rows = [[h["ip"], h["mac"], names.get(h["mac"], ""), label(oui, h["mac"])[:30], fmt_ts(h["first_seen"]),
                  fmt_ts(h["last_seen"]), h["seen_count"]]
                 for h in st.hosts(p["id"]) if h["last_seen"] >= cutoff]
         print(("\n" if n else "") + f"# {p['name']}{window}")
-        print(table(rows, ["IP", "MAC", "VENDOR", "FIRST SEEN", "LAST SEEN", "COUNT"])
+        print(table(rows, ["IP", "MAC", "NAME", "VENDOR", "FIRST SEEN", "LAST SEEN", "COUNT"])
               if rows else "no hosts")
+    return 0
+
+
+def cmd_name(args) -> int:
+    if args.mac is None:
+        st = open_store(args, False)
+        names = st.device_names()
+        print(table([[m, n] for m, n in sorted(names.items(), key=lambda kv: kv[1])],
+                    ["MAC", "NAME"]) if names else "no named devices (sudo arcount name MAC \"label\")")
+        return 0
+    mac = short_mac(args.mac)
+    st = open_store(args, True)
+    if args.remove:
+        print(f"removed the name of {mac}" if st.del_device_name(mac) else f"{mac} had no name")
+        return 0
+    if not args.label:
+        raise CliError("give a label, e.g. arcount name aa:bb:cc:dd:ee:ff \"Anna's phone\" "
+                       "(or --remove)")
+    st.set_device_name(mac, args.label.strip()[:60], time.time())
+    print(f"{mac} is now {args.label.strip()[:60]!r}")
+    return 0
+
+
+def cmd_report(args) -> int:
+    """What happened on your networks over the last N days."""
+    st = open_store(args, False)
+    now = time.time()
+    since = now - args.days * 86400
+    since_day = time.strftime("%Y-%m-%d", time.localtime(since))
+    names = st.device_names()
+    out = {"days": args.days, "networks": []}
+    for p in st.list_profiles():
+        if p["last_seen"] < since:
+            continue
+        ev = st.events(since=since, min_severity=0, profile_id=p["id"], limit=5000)
+        counts = {s.name.lower(): 0 for s in Severity}
+        for e in ev:
+            counts[Severity(e["severity"]).name.lower()] += 1
+        fresh = [{"ip": h["ip"], "mac": h["mac"], "name": names.get(h["mac"], ""),
+                  "first_seen": h["first_seen"]} for h in st.new_hosts(p["id"], since)]
+        use = st.usage(p["id"], since_day)
+        out["networks"].append({
+            "network": p["name"], "trust": p["trust_state"], "events": counts, "new_devices": fresh,
+            "rx": sum(u["rx"] for u in use), "tx": sum(u["tx"] for u in use)})
+    if args.json:
+        print(json.dumps(out, indent=2))
+        return 0
+    print(f"# Arcount report, last {args.days} day(s)")
+    if not out["networks"]:
+        print("no network activity in that period")
+    for n in out["networks"]:
+        c = n["events"]
+        print(f"\n{n['network']}  [{n['trust']}]")
+        print(f"  alerts: {c['critical']} critical, {c['high']} high, {c['medium']} medium, "
+              f"{c['low']} low ({c['info']} informational)")
+        print(f"  new devices: {len(n['new_devices'])}")
+        for d in n["new_devices"][:20]:
+            print(f"    {d['ip']:<15} {d['mac']}  {d['name'] or '(unnamed)'}  {fmt_ts(d['first_seen'])}")
+        if n["rx"] or n["tx"]:
+            print(f"  traffic: {fmt_bytes(n['rx'])} down, {fmt_bytes(n['tx'])} up")
     return 0
 
 
@@ -570,6 +631,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top", type=int, metavar="N",
                    help="also list the N remote hosts with the most traffic (needs [usage] per_host)")
     p.add_argument("--watch", action="store_true", help="live speed, refreshed every 2 s")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    p = add("name", cmd_name, "give a device (MAC) a name, list names, or remove one (sudo to change)")
+    p.add_argument("mac", nargs="?", help="device MAC address (omit to list the names)")
+    p.add_argument("label", nargs="?", help="the name, e.g. \"Anna's phone\"")
+    p.add_argument("--remove", action="store_true", help="forget this device's name")
+    p = add("report", cmd_report, "summary of alerts, new devices and traffic over the last days")
+    p.add_argument("--days", type=int, default=7, help="how many days back (default 7)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p = add("events", cmd_events, "recent events")
     p.add_argument("--since", default="24h", help="how far back, e.g. 90s, 30m, 24h, 7d (default 24h)")

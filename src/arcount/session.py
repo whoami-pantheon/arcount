@@ -420,10 +420,33 @@ class Session:
             self.ctx.store.see_host(self.profile_id, f.spa, f.sha, f.ts)
         if not f.outgoing and f.spa == det.gateway_ip and f.sha not in det.known_gw():
             self.assertions.add(f.spa, f.sha, f.ts)       # counted before rules run
-        findings = det.feed(f)
+        findings = self._watch_list(det.feed(f))
         for mac, state in det.drain_learned():
             self.ctx.store.set_gateway_mac(self.profile_id, mac, state, "frame", f.ts)
         self._handle_findings(findings, f.ts)
+
+    def _watch_list(self, findings: list[Finding]) -> list[Finding]:
+        """R15: once you have named devices, a new station nobody named is worth a look."""
+        if self.state != State.MONITORING or not any(f.rule == "R10" for f in findings):
+            return findings
+        names = self.ctx.store.device_names()
+        if not names:
+            return findings
+        hosts_here = {h["mac"] for h in self.ctx.store.hosts(self.profile_id)}
+        if not (hosts_here & set(names)):
+            return findings                       # none of your named devices live on this network
+        out = []
+        for f in findings:
+            if f.rule == "R10" and f.macs and f.macs[0] not in names:
+                mac = f.macs[0]
+                note = " It uses a randomised address (common for phones)." if arp.is_laa(mac) else ""
+                f = Finding("R15", Severity.MEDIUM, "Unknown device on your network",
+                            f"{f.ip} ({mac}) joined {self.profile_name}; it is not one of your "
+                            f"named devices.{note} Name it with: sudo arcount name {mac} \"label\"",
+                            f.ip, f.macs, details={"watch_list": True})
+                self.detector.finish(f)
+            out.append(f)
+        return out
 
     def _handle_findings(self, findings: list[Finding], ts: float,
                          verified: ProbeResult | None = None) -> None:

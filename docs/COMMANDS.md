@@ -65,6 +65,9 @@ traffic (a normal client never receives it; see README, Limitations).
 Data is written to the history database about once a minute, so the newest figures lag slightly.
 A network switch can misattribute at most one sample interval (`sample_seconds`) of traffic.
 
+### `arcount report [--days N] [--json]`
+What happened on each network you used in the last N days (default 7): alerts by severity, devices seen for the first time (with their names), and your own traffic if `[usage]` is on. Run it weekly, or after a trip.
+
 ### `arcount events [options]`
 Recorded alerts, newest first.
 | Option | Meaning |
@@ -123,6 +126,9 @@ Keys are listed in [`arcount.toml.example`](../src/arcount/data/arcount.toml.exa
 Accept a gateway MAC for a network (e.g. you replaced the router): it becomes `user_trusted` and the network `trusted`. The daemon is told to re-read it.
 ### `sudo arcount reject <network> <mac>`
 Mark a MAC hostile for a network: it will always raise a critical alert.
+### `arcount name [<mac> "<label>"] [--remove]` (sudo to change)
+Name a device. `arcount name` alone lists the names (no sudo). `sudo arcount name aa:bb:cc:dd:ee:ff "Anna's phone"` sets one, `--remove` clears it. Names show in `arcount hosts` and `arcount report`. Names are global (one MAC, one name). Once a network contains at least one device you named, any **new** unnamed device joining it raises rule R15 (see below); a network with none of your devices is never watched this way.
+
 ### `sudo arcount rename <network> <new name>`
 ### `sudo arcount forget <network>`
 Delete a network and all its hosts and events. The next visit is treated as a new network.
@@ -255,6 +261,7 @@ Severities, lowest first: `info`, `low`, `medium`, `high`, `critical`.
 | R12 | known network answered by a DHCP server it never used before (medium) |
 | R13 | known SSID joined through an access point of an unfamiliar vendor (medium) |
 | R14 | IPv6 router advertisement from a MAC the network never had; learned during learning (medium) |
+| R15 | new unnamed device on a network where you named devices (medium) |
 
 Severity: `info < low < medium < high < critical`. A **confirmed** alert means an active probe
 proved it. With `disconnect = "off"` a confirmed gateway attack of `high` or above shows a popup

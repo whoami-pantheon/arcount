@@ -161,6 +161,8 @@ class Session:
 
     def _send_request(self, target: str) -> None:
         self.cap.send_request(self.sig.our_mac, self.sig.our_ip, target)
+        if self.detector:
+            self.detector.note_sent(target, self.ctx.clock.wall())
 
     # ---- event loop hooks -------------------------------------------------------
     def on_readable(self) -> None:

@@ -63,6 +63,10 @@ class Detector:
         self._unsol: dict[str, deque] = defaultdict(deque)     # sha -> (ts, claims_gw)
         self._garp: dict[str, deque] = defaultdict(deque)
 
+    def note_sent(self, target_ip: str, ts: float) -> None:
+        """We asked who-has `target_ip` ourselves (our own socket's frames are not echoed back)."""
+        self._sent[target_ip] = ts
+
     # ---- state the session keeps in sync ---------------------------------------
     def load_hosts(self, rows) -> None:
         for r in rows:

@@ -1,10 +1,11 @@
 """PLAN §10.2 scenarios, run against the real daemon in a rootless network lab."""
 import json
+import sys
 import time
 
 import pytest
 
-from labnet import (EVIL_MAC, EVIL_IP, GW_IP, GW_MAC, VICTIM_IP, VICTIM_MAC, wait_until, sh)
+from labnet import (ROOT, EVIL_MAC, EVIL_IP, GW_IP, GW_MAC, VICTIM_IP, VICTIM_MAC, wait_until, sh)
 
 pytestmark = pytest.mark.lab
 HIGH = 3          # R01 is high on wired links (critical only for wifi/rejected MACs)
@@ -169,3 +170,19 @@ def test_15_usage_counts_own_traffic_per_network_and_host(make_lab):
     assert day["rx"] > 150_000 and day["tx"] > 150_000, day          # 200 x ~1 kB each way
     top = net["top_hosts"][0]
     assert top["ip"] == GW_IP and top["rx"] > 150_000 and top["tx"] > 150_000, top
+
+
+def test_16_capture_sees_the_kernels_outgoing_requests(make_lab):
+    """Regression: a protocol-bound socket never gets OUTGOING frames, so the detector could not
+    tell solicited replies from forged ones. Capture must report requests the host sends."""
+    lab = make_lab()
+    code = (
+        "import subprocess, sys; sys.path.insert(0, %r)\n"
+        "from arcount.capture import Capture\n"
+        "c = Capture('lan0')\n"
+        "subprocess.run(['ping', '-c1', '-W1', '10.99.0.77'], capture_output=True)\n"
+        "out = [f for f in c.read() if f.outgoing and f.op == 1]\n"
+        "print(len(out) > 0, out[0].tpa if out else '-')\n"
+    ) % str(ROOT / "src")
+    out = sh(sys.executable, "-c", code, ns="victim").split()
+    assert out == ["True", "10.99.0.77"], out

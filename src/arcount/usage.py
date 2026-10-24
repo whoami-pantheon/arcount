@@ -7,12 +7,12 @@ reaches a normal client (see docs/COMMANDS.md, `arcount usage`).
 """
 from __future__ import annotations
 
-import ctypes
 import logging
 import selectors
-import struct
 import socket
 import time
+
+from . import bpf
 
 log = logging.getLogger("arcount.usage")
 
@@ -20,9 +20,6 @@ PROC_NET_DEV = "/proc/net/dev"
 FLUSH_EVERY = 60.0
 MAX_PEERS = 20000            # distinct remote IPs held between flushes
 READ_BUDGET = 4096           # frames per wake-up, so a flood cannot starve the main loop
-ETH_P_IP = 0x0800
-ETH_P_ALL = 0x0003
-SO_ATTACH_FILTER = 26
 PACKET_HOST, PACKET_OUTGOING = 0, 4
 OTHER_PEER = "0.0.0.0"       # bucket for peers beyond MAX_PEERS
 
@@ -102,18 +99,6 @@ class Meter:
         return deltas
 
 
-def _ipv4_only_filter(sock: socket.socket) -> None:
-    """Kernel-side BPF: pass only IPv4 frames, so Python never sees the rest."""
-    prog = b"".join(struct.pack("HBBI", *ins) for ins in (
-        (0x28, 0, 0, 12),              # ldh [12]            ethertype
-        (0x15, 0, 1, ETH_P_IP),        # jeq #0x0800, else skip
-        (0x06, 0, 0, 65535),           # ret 65535           accept
-        (0x06, 0, 0, 0)))              # ret 0               drop
-    buf = ctypes.create_string_buffer(prog, len(prog))
-    sock.setsockopt(socket.SOL_SOCKET, SO_ATTACH_FILTER,
-                    struct.pack("HL", len(prog) // 8, ctypes.addressof(buf)))
-
-
 class PeerCapture:
     """Raw socket on one interface; counts IPv4 bytes per remote address.
 
@@ -122,14 +107,7 @@ class PeerCapture:
 
     def __init__(self, iface: str):
         self.iface = iface
-        self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_ALL))
-        try:
-            _ipv4_only_filter(self.sock)
-            self.sock.bind((iface, ETH_P_ALL))
-        except OSError:
-            self.sock.close()
-            raise
-        self.sock.setblocking(False)
+        self.sock = bpf.open_raw(iface, bpf.ETH_P_IP)
 
     def read(self, budget: int = READ_BUDGET) -> list[tuple[str, str, int]]:
         out = []

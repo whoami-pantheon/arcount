@@ -4,7 +4,7 @@ from __future__ import annotations
 import socket
 import sys
 
-from . import arp
+from . import arp, bpf
 from .clock import RealClock
 
 
@@ -12,9 +12,9 @@ class Capture:
     def __init__(self, iface: str, clock=None):
         self.iface = iface
         self.clock = clock or RealClock()
-        self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(arp.ETH_P_ARP))
-        self.sock.bind((iface, arp.ETH_P_ARP))
-        self.sock.setblocking(False)
+        # ETH_P_ALL + ARP-only kernel filter: a protocol-specific socket never sees our OWN
+        # outgoing requests, which the detector needs to tell solicited replies from forged ones.
+        self.sock = bpf.open_raw(iface, arp.ETH_P_ARP)
 
     def fileno(self) -> int:
         return self.sock.fileno()

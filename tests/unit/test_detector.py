@@ -236,3 +236,11 @@ def test_gc_drops_state():
     d.feed(sent_request(1, GW_IP))
     d.gc(100000)
     assert not d._claims and not d._changes and not d._sent
+
+
+def test_r08_replies_to_a_request_we_noted_are_solicited():
+    """note_sent covers requests sent by our own socket, which the kernel never echoes back."""
+    d = make()
+    for i in range(10):
+        d.note_sent(GW_IP, 100.0 + i)
+        assert "R08" not in rules(d.feed(reply_to_us(100.5 + i, GW_MAC, GW_IP)))

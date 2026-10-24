@@ -116,7 +116,7 @@ def cmd_hosts(args) -> int:
               and (args.max_days is None or h["days"] <= args.max_days)]
         hs.sort(key=keys[args.sort])
         rows = [[h["ip"], h["mac"], names.get(h["mac"], ""), label(oui, h["mac"])[:30],
-                 guess(oui.vendor(h["mac"]), h["mac"], h["ip"] == p["gateway_ip"])[:30],
+                 guess(oui.vendor(h["mac"]), h["mac"], h["ip"] == p["gateway_ip"])[:34],
                  fmt_ts(h["first_seen"]), fmt_ts(h["last_seen"]), h["seen_count"], h["visits"],
                  h["days"]] for h in hs]
         print(("\n" if n else "") + f"# {p['name']}{window}")

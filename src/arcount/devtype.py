@@ -107,7 +107,7 @@ def guess(vendor: str, mac: str = "", is_gateway: bool = False) -> str:
     if not v:
         try:
             if int(mac[:2], 16) & 2:
-                return "phone / laptop (random address)"
+                return "phone / laptop (random MAC)"
         except ValueError:
             pass
         return ""

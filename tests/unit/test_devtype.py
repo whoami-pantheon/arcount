@@ -25,6 +25,6 @@ def test_whole_words_only_and_unknown_is_blank():
 
 
 def test_address_based_guesses():
-    assert guess("", "02:aa:bb:cc:00:01") == "phone / laptop (random address)"
+    assert guess("", "02:aa:bb:cc:00:01") == "phone / laptop (random MAC)"
     assert guess("PCS Systems AG", "08:00:27:aa:bb:cc") == "virtual machine (VirtualBox)"
     assert guess("Anything", "02:aa:bb:cc:00:01", is_gateway=True) == "gateway / router"

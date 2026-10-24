@@ -8,6 +8,7 @@ import json
 import os
 import signal
 import subprocess
+import threading
 import sys
 import time
 from pathlib import Path
@@ -36,7 +37,8 @@ def cb(p):
     if p.haslayer(ARP) and p[ARP].op == 1 and p[ARP].pdst == target:
         sendp(Ether(src=mac, dst=p[Ether].src) / ARP(op=2, hwsrc=mac, psrc=target,
               hwdst=p[ARP].hwsrc, pdst=p[ARP].psrc), iface=iface, verbose=0)
-sniff(iface=iface, filter="arp", prn=cb, store=0)
+sniff(iface=iface, filter="arp", prn=cb, store=0,
+      started_callback=lambda: print("ready", flush=True))
 """
 
 
@@ -190,9 +192,14 @@ class Lab:
     def start_responder(self, target_ip=GW_IP, mac=EVIL_MAC):
         """An attacker NIC that answers 'who-has target_ip' too."""
         p = subprocess.Popen(["ip", "netns", "exec", "attacker", sys.executable, "-c", RESPOND,
-                              "lan0", target_ip, mac], stderr=subprocess.DEVNULL)
+                              "lan0", target_ip, mac], stderr=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, text=True)
         self.bg.append(p)
-        time.sleep(1.5)                                   # scapy import + sniff start
+        line = [None]
+        t = threading.Thread(target=lambda: line.__setitem__(0, p.stdout.readline()), daemon=True)
+        t.start()
+        t.join(60)                                        # scapy import + sniff start, however slow
+        assert line[0] and line[0].strip() == "ready", "responder did not start"
         return p
 
     def set_gateway_mac(self, mac):

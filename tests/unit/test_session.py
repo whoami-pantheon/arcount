@@ -344,3 +344,12 @@ def test_alert_message_names_vendor_of_macs(tmp_path):
     msg = lan.alerts[-1].message
     assert f"{EVIL} (EvilCorp)" in msg
     assert f"sudo arcount trust {s.profile_id} {EVIL}" in msg          # copy-paste hint stays clean
+
+
+def test_usage_profile_only_while_network_is_known(tmp_path):
+    lan = Lan(tmp_path)
+    s = lan.session()
+    assert s.usage_profile() is None            # still identifying: do not bill the old network
+    lan.run(s, 3)
+    assert s.usage_profile() == s.profile_id
+    lan.store.close()

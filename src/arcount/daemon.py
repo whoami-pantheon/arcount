@@ -81,7 +81,7 @@ class Daemon:
         self.manager = SessionManager(self.ctx, self._register, self._unregister)
         self.usage = UsageService(
             self.store, self.clock,
-            lambda: {i: s.profile_id for i, s in self.manager.sessions.items()},
+            lambda: {i: s.usage_profile() for i, s in self.manager.sessions.items()},
             self.sel, lambda: self.cfg.usage)
         self.netwatch = NetWatch(self.clock)
         self._nw_fd = None

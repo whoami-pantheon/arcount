@@ -530,6 +530,12 @@ class Session:
             self._unpin()
         self._maybe_pin()
 
+    def usage_profile(self) -> int | None:
+        """Network to bill traffic to: only while we know which one this link is on."""
+        if self.state in (State.PROBING, State.LEARNING, State.MONITORING):
+            return self.profile_id
+        return None
+
     def status(self) -> dict:
         macs = self.ctx.store.gateway_macs(self.profile_id) if self.profile_id else {}
         return {"iface": self.iface, "state": self.state.value, "profile_id": self.profile_id,

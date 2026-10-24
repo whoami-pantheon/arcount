@@ -106,12 +106,20 @@ def cmd_hosts(args) -> int:
     span = 7 * 86400 if args.since is None else parse_duration(args.since)
     cutoff = 0 if args.all else time.time() - span
     window = "" if args.all else f"  (seen in the last {args.since or '7d'}; --all for everything)"
+    keys = {"ip": lambda h: tuple(int(x) if x.isdigit() else 0 for x in h["ip"].split(".")),
+            "first": lambda h: h["first_seen"],
+            "count": lambda h: -h["seen_count"], "visits": lambda h: -h["visits"],
+            "days": lambda h: -h["days"], "last": lambda h: -h["last_seen"]}
     for n, p in enumerate(profiles):
-        rows = [[h["ip"], h["mac"], names.get(h["mac"], ""), label(oui, h["mac"])[:30], fmt_ts(h["first_seen"]),
-                 fmt_ts(h["last_seen"]), h["seen_count"]]
-                for h in st.hosts(p["id"]) if h["last_seen"] >= cutoff]
+        hs = [h for h in st.hosts(p["id"]) if h["last_seen"] >= cutoff
+              and (args.max_days is None or h["days"] <= args.max_days)]
+        hs.sort(key=keys[args.sort])
+        rows = [[h["ip"], h["mac"], names.get(h["mac"], ""), label(oui, h["mac"])[:30],
+                 fmt_ts(h["first_seen"]), fmt_ts(h["last_seen"]), h["seen_count"], h["visits"],
+                 h["days"]] for h in hs]
         print(("\n" if n else "") + f"# {p['name']}{window}")
-        print(table(rows, ["IP", "MAC", "NAME", "VENDOR", "FIRST SEEN", "LAST SEEN", "COUNT"])
+        print(table(rows, ["IP", "MAC", "NAME", "VENDOR", "FIRST SEEN", "LAST SEEN", "COUNT",
+                           "VISITS", "DAYS"])
               if rows else "no hosts")
     return 0
 

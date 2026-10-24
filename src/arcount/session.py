@@ -111,6 +111,9 @@ class Session:
         self._replaced_alerted = False
         self._pending: dict[str, _Group] = {}   # ip -> findings awaiting a confirmation probe
         self._ra_alerted: set[str] = set()
+        self._visit = object()                       # one join; hosts are counted once per visit
+        self._arp_times: dict[str, deque] = {}       # R16: recent ARP frame times per sender MAC
+        self._flooders: set[str] = set()
         self._res = None
         self._gen = 0              # bumped on every (re)identification; stale callbacks check it
 
@@ -427,13 +430,36 @@ class Session:
         det = self.detector
         if not f.outgoing and f.spa != "0.0.0.0" and not arp.is_multicast(f.sha) \
                 and f.sha != arp.ZERO_MAC and det.in_subnet(f.spa):
-            self.ctx.store.see_host(self.profile_id, f.spa, f.sha, f.ts)
+            self.ctx.store.see_host(self.profile_id, f.spa, f.sha, f.ts, visit=self._visit)
         if not f.outgoing and f.spa == det.gateway_ip and f.sha not in det.known_gw():
             self.assertions.add(f.spa, f.sha, f.ts)       # counted before rules run
         findings = self._watch_list(det.feed(f))
+        findings.extend(self._flood_check(f))
         for mac, state in det.drain_learned():
             self.ctx.store.set_gateway_mac(self.profile_id, mac, state, "frame", f.ts)
         self._handle_findings(findings, f.ts)
+
+    def _flood_check(self, f: arp.Frame) -> list[Finding]:
+        """R16: one MAC sending a burst of ARP frames (a scan or a flood), once per MAC per visit."""
+        if f.outgoing or self.state != State.MONITORING or not f.sha or f.sha in self._flooders:
+            return []
+        d = self.ctx.cfg.detection
+        q = self._arp_times.setdefault(f.sha, deque())
+        q.append(f.ts)
+        while q and f.ts - q[0] > d.arp_flood_window:
+            q.popleft()
+        if len(q) < d.arp_flood_frames:
+            if len(self._arp_times) > 512:               # bound memory on a hostile network
+                self._arp_times = {f.sha: q}
+            return []
+        self._flooders.add(f.sha)
+        fi = Finding("R16", Severity.MEDIUM, "ARP flood or scan",
+                     f"{f.sha} sent {len(q)} ARP frames in {d.arp_flood_window:g}s on "
+                     f"{self.profile_name}. A normal device sends a handful. This is typical of a "
+                     f"network scan or an ARP flood.", f.spa, [f.sha],
+                     details={"frames": len(q), "window": d.arp_flood_window})
+        self.detector.finish(fi)
+        return [fi]
 
     def _watch_list(self, findings: list[Finding]) -> list[Finding]:
         """R15: once you have named devices, a new station nobody named is worth a look."""

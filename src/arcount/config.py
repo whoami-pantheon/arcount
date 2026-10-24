@@ -29,6 +29,8 @@ class Detection:
     unsolicited_threshold: int = 5
     gratuitous_threshold: int = 20
     request_match_window: float = 5
+    arp_flood_frames: int = 200
+    arp_flood_window: float = 10
     ether_mismatch_allow: list[str] = field(default_factory=list)
 
 
@@ -177,7 +179,8 @@ def validate(cfg: Config) -> None:
         raise ConfigError("[usage] ttl_days must be positive")
     d = cfg.detection
     for key in ("learning_seconds", "conflict_window", "flipflop_window",
-                "unsolicited_threshold", "gratuitous_threshold", "request_match_window"):
+                "unsolicited_threshold", "gratuitous_threshold", "request_match_window",
+                "arp_flood_frames", "arp_flood_window"):
         if getattr(d, key) <= 0:
             raise ConfigError(f"[detection] {key} must be positive")
     d.ether_mismatch_allow = [m.lower() for m in d.ether_mismatch_allow]

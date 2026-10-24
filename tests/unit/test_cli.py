@@ -202,3 +202,10 @@ def test_help_lists_every_command(capsys):
               "import-arpwatch", "pause", "resume", "test-alert", "mac", "config", "doctor",
               "setup", "update"):
         assert c in out, c
+
+
+def test_hosts_sort_and_max_days(capsys, env):
+    rc, out, _ = run(capsys, env, "hosts", "HomeWifi 10.0.0.0/24", "--sort", "count")
+    assert rc == 0 and "VISITS" in out and "DAYS" in out
+    rc, out, _ = run(capsys, env, "hosts", "HomeWifi 10.0.0.0/24", "--max-days", "0")
+    assert rc == 0 and "no hosts" in out

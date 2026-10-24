@@ -171,3 +171,27 @@ def test_name_and_report_commands(tmp_path, capsys):
     assert "HomeWifi" in out and "Printer" in out and "5.0 MB down" in out
     assert cli.main(args + ["report", "--json"]) == 0
     assert '"new_devices"' in capsys.readouterr().out
+
+
+def test_arp_flood_from_one_mac_alerts_once(tmp_path):
+    lan, s = trusted_lan(tmp_path)
+    mac = "02:aa:bb:cc:00:77"
+    for i in range(250):                                  # a burst well above 200 in 10 s
+        lan.cap.inject(mac, f"10.0.0.{i % 200 + 20}", tpa=f"10.0.0.{i % 200 + 30}", op=1,
+                       eth_dst="ff:ff:ff:ff:ff:ff")
+    lan.run(s, 1)
+    assert lan.rules().count("R16") == 1
+    for i in range(250):
+        lan.cap.inject(mac, "10.0.0.50", tpa="10.0.0.51", op=1, eth_dst="ff:ff:ff:ff:ff:ff")
+    lan.run(s, 1)
+    assert lan.rules().count("R16") == 1                  # once per MAC per visit
+    lan.store.close()
+
+
+def test_normal_arp_chatter_does_not_trigger_flood(tmp_path):
+    lan, s = trusted_lan(tmp_path)
+    for i in range(30):
+        lan.cap.inject("02:aa:bb:cc:00:78", "10.0.0.60", op=1, eth_dst="ff:ff:ff:ff:ff:ff")
+        lan.run(s, 1)
+    assert "R16" not in lan.rules()
+    lan.store.close()

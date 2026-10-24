@@ -26,6 +26,8 @@ conflict_window = 30             # seconds: two MACs claiming one IP within this
 flipflop_window = 600            # seconds: an IP alternating between MACs within this = flip-flop
 unsolicited_threshold = 5        # unsolicited ARP replies per minute from one MAC before alerting
 gratuitous_threshold = 20        # gratuitous ARPs per minute before alerting
+arp_flood_frames = 200           # ARP frames from ONE MAC within arp_flood_window before alerting (R16)
+arp_flood_window = 10            # seconds; 200 in 10 s is far above any normal device (scans, floods)
 request_match_window = 5         # seconds a reply may arrive after our request to count as solicited
 ether_mismatch_allow = []        # MACs of known MAC-rewriting repeaters/extenders, e.g. ["aa:bb:cc:dd:ee:ff"]
 

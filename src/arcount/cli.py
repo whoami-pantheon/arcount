@@ -37,6 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="network name or id (default: the network(s) connected right now)")
     p.add_argument("--since", help="only hosts seen within this long, e.g. 15m, 24h, 7d (default 7d)")
     p.add_argument("--all", action="store_true", help="everything ever seen")
+    p.add_argument("--sort", choices=["ip", "count", "visits", "days", "first", "last"], default="ip",
+                   help="order rows by this column (default ip; count/visits/days/last: biggest first)")
+    p.add_argument("--max-days", type=int, metavar="N",
+                   help="only devices seen on at most N different days (find the rare ones)")
     p = add("usage", cmd_usage, "this machine's speed and data consumption per network")
     p.add_argument("profile", nargs="?",
                    help="network name or id (default: the network(s) connected right now)")

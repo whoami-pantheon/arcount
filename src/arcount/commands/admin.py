@@ -101,8 +101,9 @@ def cmd_import(args) -> int:
         except (ValueError, OSError):
             bad += 1
             continue
-        st.db.execute("INSERT OR IGNORE INTO hosts VALUES(?,?,?,?,?,?,?,1)",
-                      (p["id"], "ipv4", ip, mac, clean(f[3]) if len(f) > 3 else None, ts, ts))
+        st.db.execute("INSERT OR IGNORE INTO hosts VALUES(?,?,?,?,?,?,?,1,1,1,?)",
+                      (p["id"], "ipv4", ip, mac, clean(f[3]) if len(f) > 3 else None, ts, ts,
+                       time.strftime("%Y-%m-%d", time.localtime(ts))))
         n += 1
     st.db.commit()
     print(f"imported {n} entries into {p['name']}" + (f" ({bad} unreadable lines skipped)" if bad else ""))

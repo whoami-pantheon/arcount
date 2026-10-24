@@ -20,7 +20,7 @@ def test_migrate_idempotent(tmp_path):
     p = tmp_path / "t.db"
     Store(p).close()
     s = Store(p)
-    assert s.db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "3"
+    assert s.db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
     s.close()
 
 
@@ -125,3 +125,20 @@ def test_mac_history_and_gateway_standing(st):
     g = st.gateway_standing("00:11:22:33:44:01")
     assert [(r["profile"], r["state"]) for r in g] == [("HomeWifi", "trusted")]
     assert st.gateway_standing("00:aa:bb:cc:dd:05") == []
+
+
+def test_host_visits_and_days(tmp_path):
+    import time
+    s = Store(tmp_path / "v.db")
+    pid = s.create_profile("wifi", "HomeWifi", "k", "10.20.30.0/24", "10.20.30.1", 1.0)
+    d1, d2 = 1_700_000_000.0, 1_700_000_000.0 + 2 * 86400
+    a, b = object(), object()
+    assert s.see_host(pid, "10.20.30.5", "02:aa:bb:cc:00:05", d1, visit=a)
+    for i in range(3):
+        s.see_host(pid, "10.20.30.5", "02:aa:bb:cc:00:05", d1 + i + 1, visit=a)   # same visit
+    h = s.hosts(pid)[0]
+    assert (h["seen_count"], h["visits"], h["days"]) == (4, 1, 1)
+    s.see_host(pid, "10.20.30.5", "02:aa:bb:cc:00:05", d2, visit=b)               # next visit, 2 days on
+    h = s.hosts(pid)[0]
+    assert (h["seen_count"], h["visits"], h["days"]) == (5, 2, 2)
+    s.close()

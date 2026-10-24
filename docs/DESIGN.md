@@ -278,6 +278,8 @@ The detector holds per-session in-memory state (recent claims per IP, recent req
 | R12 | `dhcp_server_changed` | Join-time: a DHCP server id not among those stored for a known profile. Never auto-learned: first alert is medium with a popup (`dhcp_alerted` signal), later joins are low and quiet; only `arcount trust <net> <ip>` / the popup button accepts it | **medium** |
 | R13 | `access_point_changed` | Join-time: new BSSID on a known Wi-Fi profile whose OUI prefix matches no stored BSSID | **medium** |
 | R14 | `rogue_router_advert` | ICMPv6 RA (lifetime > 0) from a MAC not seen as RA source during learning and not a known gateway | **medium** |
+| R15 | `unknown_device` | R10 promoted to medium when the network holds at least one device you named | **medium** |
+| R16 | `arp_flood` | One sender MAC emits `arp_flood_frames` ARP frames within `arp_flood_window` s (sliding window in memory, bounded to 512 MACs); once per MAC per visit | **medium** |
 
 Findings that overlap (e.g. R01 + R03 + R07 on the same gateway IP within a few seconds) are merged by the Dispatcher's dedup key (§6). The highest severity wins and the rule IDs are listed together.
 
@@ -425,7 +427,7 @@ arcountd [--config PATH] [--state-dir DIR] [--run-dir DIR] [--no-nm] [--foregrou
 
 ## 9. Storage (`store.py`)
 
-SQLite in `/var/lib/arcount/arcount.db`. Settings: `journal_mode=WAL`, `busy_timeout=3000`, `foreign_keys=ON`. Schema versioned through `meta.schema_version` with forward-only migrations.
+SQLite in `/var/lib/arcount/arcount.db`. Settings: `journal_mode=WAL`, `busy_timeout=3000`, `foreign_keys=ON`. `hosts` also keeps `visits` (joins in which the device was seen) and `days` (distinct calendar days) from schema v4. Schema versioned through `meta.schema_version` with forward-only migrations.
 
 An `family` column exists now (always `'ipv4'`) so IPv6 can be added without a migration of keys.
 

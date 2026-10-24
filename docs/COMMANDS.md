@@ -43,6 +43,12 @@ Devices seen on a network, with vendor, first/last seen and how many times.
 | `arcount hosts "<network>"` | a specific network |
 | `--since 15m` | only devices seen within this long (`90s`, `30m`, `24h`, `7d`; default `7d`) |
 | `--all` | everything ever seen |
+| `--sort KEY` | order by `ip` (default), `count`, `visits`, `days`, `first` or `last` (all but `ip`/`first` put the biggest or newest first) |
+| `--max-days N` | only devices seen on at most N different days: the rare ones |
+
+**VENDOR** comes from the offline IEEE registries (the `ieee-data` package: about 36 000 manufacturer prefixes, plus the longer MA-M and MA-S ranges). It names the company that made the network chip, so TVs, cameras, printers and IoT devices show their maker (for example "Hangzhou Hikvision Digital Technology", Samsung, LG, Intel), not the device type. A phone or laptop using a randomised address shows `randomised/virtual`, and an unlisted prefix or a missing `ieee-data` package leaves the column empty. Without `ieee-data`, run `sudo apt install ieee-data`.
+
+**VISITS** is on how many separate joins to this network the device was seen, and **DAYS** on how many different calendar days. A device with `DAYS 1` is new or rare; one with many days is a regular. These are steadier trust signals than COUNT. Devices recorded before v0.4.2 start at 1 visit and 1 day.
 
 **COUNT** is the number of ARP packets seen from that IP + MAC pair, added up over every visit to the network (it is stored per network and survives disconnects and reboots; it is dropped only when the device has not been seen for `host_ttl_days`, default 90). It is a "how chatty" figure, not bytes, connections or time online, and it is written to the database in batches, so it can lag by a few seconds.
 
@@ -228,6 +234,7 @@ Every key, with its default. Omit anything you do not want to change. Edit with
 | `detection.learning_seconds` | `120` | how long a NEW network is observed before its gateway is trusted |
 | `detection.conflict_window` | `30` | seconds: two MACs claiming one IP within this window = conflict (R02) |
 | `detection.flipflop_window` | `600` | seconds: an IP alternating between MACs within this = flip-flop (R03) |
+| `detection.arp_flood_frames` / `detection.arp_flood_window` | `200` / `10` | ARP frames from one MAC within this many seconds before alerting (R16, ARP scan or flood) |
 | `detection.unsolicited_threshold` | `5` | unsolicited ARP replies per minute from one MAC before alerting (R08) |
 | `detection.gratuitous_threshold` | `20` | gratuitous ARPs per minute before alerting |
 | `detection.request_match_window` | `5` | seconds a reply may follow our request and still count as solicited |
@@ -292,6 +299,7 @@ Privacy: with the default `redact = true` the message that leaves your laptop sa
 | R13 | known SSID joined through an access point of an unfamiliar vendor (medium) |
 | R14 | IPv6 router advertisement from a MAC the network never had; learned during learning (medium) |
 | R15 | new unnamed device on a network where you named devices (medium) |
+| R16 | one MAC sent `detection.arp_flood_frames` ARP frames within `detection.arp_flood_window` seconds: scan or flood; once per MAC per visit (medium) |
 
 Severity: `info < low < medium < high < critical`. A **confirmed** alert means an active probe
 proved it. With `disconnect = "off"` a confirmed gateway attack of `high` or above shows a popup

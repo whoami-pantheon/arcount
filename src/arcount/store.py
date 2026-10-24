@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 from .store_names import SCHEMA_V3, NamesMixin
 from .store_usage import SCHEMA_V2, UsageMixin
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA_V1 = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
@@ -43,7 +44,18 @@ CREATE TABLE pins(
   iface TEXT, ip TEXT, mac TEXT, created REAL, run_id TEXT, PRIMARY KEY(iface, ip));
 """
 
-_MIGRATIONS = {1: _SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3}
+SCHEMA_V4 = """
+ALTER TABLE hosts ADD COLUMN visits INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE hosts ADD COLUMN days INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE hosts ADD COLUMN last_day TEXT;
+UPDATE hosts SET last_day=strftime('%Y-%m-%d', last_seen, 'unixepoch', 'localtime');
+"""
+
+_MIGRATIONS = {1: _SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3, 4: SCHEMA_V4}
+def _day(ts: float) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(ts))
+
+
 GW_STATES = ("provisional", "trusted", "user_trusted", "rejected")
 KNOWN_GW_STATES = ("provisional", "trusted", "user_trusted")
 
@@ -61,8 +73,9 @@ class Store(UsageMixin, NamesMixin):
         self.db.execute("PRAGMA foreign_keys=ON")
         if not readonly:
             self._migrate()
-        # (profile, ip, mac) -> [last_seen, count_delta]; flushed periodically
+        # (profile, family, ip, mac) -> [last_seen, count_delta, visit_delta]; flushed periodically
         self._pending_hosts: dict[tuple, list] = {}
+        self._visit_seen: dict[tuple, object] = {}     # key -> visit token already counted
 
     @staticmethod
     def _open_readonly(path: str) -> sqlite3.Connection:
@@ -204,21 +217,28 @@ class Store(UsageMixin, NamesMixin):
             "SELECT mac,last_seen FROM hosts WHERE profile_id=? AND family=? AND ip=?",
             (pid, family, ip))}
 
-    def see_host(self, pid, ip, mac, now, family="ipv4") -> bool:
-        """Record a sighting. Returns True if (ip, mac) is new for this profile."""
+    def see_host(self, pid, ip, mac, now, family="ipv4", visit=None) -> bool:
+        """Record a sighting. Returns True if (ip, mac) is new for this profile.
+
+        `visit` identifies one join (any hashable); a device is counted once per visit."""
         key = (pid, family, ip, mac)
+        newvisit = int(visit is not None and self._visit_seen.get(key) != visit)
+        if newvisit:
+            self._visit_seen[key] = visit
         if key in self._pending_hosts:
-            self._pending_hosts[key][0] = now
-            self._pending_hosts[key][1] += 1
+            v = self._pending_hosts[key]
+            v[0] = now
+            v[1] += 1
+            v[2] += newvisit
             return False
         row = self.db.execute(
             "SELECT 1 FROM hosts WHERE profile_id=? AND family=? AND ip=? AND mac=?",
             key).fetchone()
         if row:
-            self._pending_hosts[key] = [now, 1]
+            self._pending_hosts[key] = [now, 1, newvisit]
             return False
-        self.db.execute("INSERT INTO hosts VALUES(?,?,?,?,NULL,?,?,1)",
-                        (pid, family, ip, mac, now, now))
+        self.db.execute("INSERT INTO hosts VALUES(?,?,?,?,NULL,?,?,1,1,1,?)",
+                        (pid, family, ip, mac, now, now, _day(now)))
         self.db.commit()
         return True
 
@@ -226,9 +246,10 @@ class Store(UsageMixin, NamesMixin):
         if not self._pending_hosts:
             return
         self.db.executemany(
-            "UPDATE hosts SET last_seen=?, seen_count=seen_count+? "
+            "UPDATE hosts SET last_seen=?, seen_count=seen_count+?, visits=visits+?, "
+            "days=days+(last_day IS NOT ?), last_day=? "
             "WHERE profile_id=? AND family=? AND ip=? AND mac=?",
-            [(v[0], v[1], *k) for k, v in self._pending_hosts.items()])
+            [(v[0], v[1], v[2], _day(v[0]), _day(v[0]), *k) for k, v in self._pending_hosts.items()])
         self.db.commit()
         self._pending_hosts.clear()
 

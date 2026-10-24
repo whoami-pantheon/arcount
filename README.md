@@ -26,15 +26,33 @@ git clone https://github.com/whoami-pantheon/arcount.git
 cd arcount
 sudo ./packaging/install.sh        # checks your system, installs, starts the service
 ```
-Then **log out and back in once** (this puts your user in the `arcount` group so the commands and
-desktop popups can talk to the service), and check everything:
+Open a **new terminal** and check everything (no log-out needed: the commands pick up the new
+`arcount` group by themselves):
 ```sh
 arcount doctor                     # health check; tells you how to fix anything wrong
-arcount test-alert                 # a desktop popup should appear
+arcount test-alert                 # a desktop popup should appear (start the popup agent now with
+                                   #   `arcount-notify &`, or it starts at your next login)
 arcount status                     # what it is watching right now
 ```
 That is all. It starts automatically at every boot. The first time you join a network it spends two
 minutes *learning* it, after which it is fully armed.
+
+### Other ways to install
+**A signed release** (no git needed). Check the signature before you run anything from it:
+```sh
+V=0.3.0
+curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz
+curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz.sig
+tar xzf arcount-$V.tar.gz
+awk '{print $3, $4}' arcount-$V/src/arcount/data/allowed_signers > key.pub && ssh-keygen -lf key.pub
+#   must print exactly: SHA256:+FDjR88EiEAXirbq0scwwuNaHgvn987wRqMHRCJmhgI
+ssh-keygen -Y verify -f arcount-$V/src/arcount/data/allowed_signers -I arcount-release@whoami-pantheon \
+    -n arcount-release -s arcount-$V.tar.gz.sig < arcount-$V.tar.gz     # must say "Good"
+cd arcount-$V && sudo ./packaging/install.sh
+```
+**A Debian/Ubuntu/Kali package**, built from a checkout you trust: `./packaging/make-deb.sh` then
+`sudo apt install ./dist/arcount_*_all.deb` (removing it with `apt remove arcount` uninstalls
+cleanly and keeps your history; `apt purge` deletes it too). Later upgrades: `sudo arcount update`.
 
 ### Requirements
 | Needed | For |

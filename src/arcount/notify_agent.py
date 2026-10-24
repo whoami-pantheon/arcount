@@ -20,7 +20,7 @@ import sys
 import threading
 import time
 
-from . import __version__, github
+from . import __version__, github, groupfix
 from .config import SEVERITIES, Config, ConfigError, Updates, load
 
 log = logging.getLogger("arcount-notify")
@@ -358,6 +358,8 @@ def maybe_restart_into_new_version(argv, here: str = __file__, running: str = __
 
 
 def main(argv=None) -> int:
+    if argv is None:
+        groupfix.maybe_reexec("arcount.notify_agent", sys.argv[1:])
     ap = argparse.ArgumentParser(prog="arcount-notify")
     ap.add_argument("--sock", default=DEFAULT_SOCK)
     ap.add_argument("--db", default=DEFAULT_DB, help="history database (for the away digest)")

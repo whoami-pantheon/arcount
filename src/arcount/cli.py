@@ -5,7 +5,7 @@ import argparse
 import os                                   # noqa: F401  (tests patch cli.os.geteuid)
 import sys
 
-from . import __version__
+from . import __version__, groupfix
 from .detector import Severity
 from .commands.admin import (cmd_config, cmd_forget, cmd_import, cmd_name, cmd_pause, cmd_reject,
                              cmd_rename, cmd_resume, cmd_test_alert, cmd_trust)
@@ -119,6 +119,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    if argv is None and not {"-h", "--help", "--version"} & set(sys.argv[1:]):
+        groupfix.maybe_reexec("arcount", sys.argv[1:])      # only from the real command line
     args = build_parser().parse_args(argv)
     try:
         return args.fn(args)

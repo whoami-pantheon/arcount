@@ -137,7 +137,7 @@ def _ensure_group(user: str | None, out: Out) -> None:
         out.note(f"{user} is already in group {GROUP}")
     else:
         _run(["usermod", "-aG", GROUP, user])
-        out.ok(f"added {user} to group {GROUP}  (log out and in again for it to apply)")
+        out.ok(f"added {user} to group {GROUP}  (open a new terminal; commands pick the group up by themselves)")
 
 
 def write_support_files(root: Path, data: Path, out: Out) -> bool:
@@ -220,8 +220,8 @@ def install(args) -> int:
         return 1
     print(f"""
 Done. Next steps:
-  1. Log out and back in (once) so your user is in group '{GROUP}'. Until then the CLI and the
-     desktop agent cannot read the daemon's state.
+  1. Open a NEW terminal: your user is now in group '{GROUP}', and `arcount` applies it by itself,
+     no log-out needed. For popups right now run `arcount-notify &` (otherwise they start at login).
   2. arcount status        should list your interface; the first minutes on a network are 'learning'
   3. arcount test-alert    a desktop popup should appear
   4. Edit /etc/arcount/arcount.toml (pinning / disconnect are off by default), then

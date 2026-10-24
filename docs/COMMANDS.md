@@ -153,6 +153,9 @@ Install (or repair) Arcount on this machine. Safe to re-run; never overwrites yo
 | `--user NAME` | user to add to group `arcount` (default `$SUDO_USER`) |
 
 From a checkout: `sudo ./packaging/install.sh` (same thing; `packaging/uninstall.sh [--purge]`).
+As a package: `./packaging/make-deb.sh` builds `dist/arcount_<version>_all.deb` (`ARCOUNT_DIST=dir` changes where); installing it runs `arcount setup` for you, `apt remove` runs `--uninstall`, `apt purge` also deletes history, config and the group. From a signed release tarball: see the README, "Other ways to install".
+
+**Group membership without logging out.** Setup puts you in group `arcount`. A running login session does not get it until the next login, so `arcount` and `arcount-notify` notice when `/etc/group` lists you but the process lacks the group, and re-run themselves through `sg arcount` (needs the `sg` command from `login`; skipped for root and when `sg` is missing).
 
 ### `arcount update [options]`
 Upgrade an installed Arcount. By default it fetches the **newest release tag from GitHub**

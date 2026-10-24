@@ -44,7 +44,9 @@ Devices seen on a network, with vendor, first/last seen and how many times.
 | `--since 15m` | only devices seen within this long (`90s`, `30m`, `24h`, `7d`; default `7d`) |
 | `--all` | everything ever seen |
 
-"Seen" means an ARP frame from the device was observed; a quiet device appears when it next talks.
+**COUNT** is the number of ARP packets seen from that IP + MAC pair, added up over every visit to the network (it is stored per network and survives disconnects and reboots; it is dropped only when the device has not been seen for `host_ttl_days`, default 90). It is a "how chatty" figure, not bytes, connections or time online, and it is written to the database in batches, so it can lag by a few seconds.
+
+"Seen" means an ARP frame from the device was observed; a quiet device appears when it next talks. Arcount does not put the card in promiscuous mode and never scans, so it lists only devices whose ARP it receives: broadcast ARP requests and announcements from anyone on the segment, and replies sent to this laptop. Devices that stay silent, or that only reply to other hosts (unicast ARP is not delivered to you on a switch or Wi-Fi), do not show up. Client isolation on a Wi-Fi network hides even more.
 `arcount hosts --since 15m` is the closest thing to "who is on the network right now".
 
 ### `arcount usage [<network>] [options]`

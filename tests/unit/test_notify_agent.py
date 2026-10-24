@@ -211,3 +211,48 @@ def test_installed_version_reader(tmp_path):
     f.write_text('__version__ = "1.2.3"\n')
     assert na.installed_version(str(f)) == "1.2.3"
     assert na.installed_version(str(tmp_path / "nope")) is None
+
+
+# ---- away digest -------------------------------------------------------------------------
+def _db_with_events(tmp_path, rows):
+    from arcount.store import Store
+    st = Store(tmp_path / "a.db")
+    pid = st.create_profile("wifi", "HomeWifi", "k", "10.20.30.0/24", "10.20.30.1", 1.0)
+    for i, (ts, sev, paused) in enumerate(rows):
+        st.insert_event(dict(id=f"e{i}", ts=ts, last_ts=ts, count=1, profile_id=pid, iface="wlan0",
+                             rules=["R01"], severity=sev, ip=None, macs=[], confirmed=0,
+                             provisional=0, paused=paused, title=f"Gateway changed {i}",
+                             message="m", details={}))
+    st.close()
+    return str(tmp_path / "a.db")
+
+
+def test_away_digest_summarises_missed_alerts_once(tmp_path):
+    from arcount import notify_agent as na
+    db = _db_with_events(tmp_path, [(1000, 3, 0), (1100, 2, 0), (1200, 3, 1), (50, 3, 0)])
+    alive = str(tmp_path / "alive")
+    na.write_alive(500, alive)
+    calls = []
+    assert na.away_digest(db, "medium", now=5000, runner=lambda c, **k: calls.append(c),
+                          alive_path=alive) is True
+    assert len(calls) == 1 and "2 alerts while you were away" in calls[0][-2]   # paused + old excluded
+    assert na.read_alive(alive) == 5000                                          # heartbeat refreshed
+
+
+def test_away_digest_quiet_when_just_restarted_or_first_run(tmp_path):
+    from arcount import notify_agent as na
+    db = _db_with_events(tmp_path, [(1000, 3, 0)])
+    alive = str(tmp_path / "alive")
+    calls = []
+    run = lambda c, **k: calls.append(c)                                         # noqa: E731
+    assert na.away_digest(db, "medium", now=2000, runner=run, alive_path=alive) is False   # first run
+    assert na.away_digest(db, "medium", now=2060, runner=run, alive_path=alive) is False   # short gap
+    assert calls == []
+
+
+def test_away_digest_unreadable_history_falls_back_to_replays(tmp_path):
+    from arcount import notify_agent as na
+    alive = str(tmp_path / "alive")
+    na.write_alive(0, alive)
+    assert na.away_digest(str(tmp_path / "nope.db"), "low", now=9999, runner=lambda *a, **k: None,
+                          alive_path=alive) is False       # daemon's replayed alerts still show

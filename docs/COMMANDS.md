@@ -189,7 +189,7 @@ reviewing it. Use `--from` with a checkout you have reviewed if you prefer to in
 | Program | Purpose |
 |---|---|
 | `arcountd` | the daemon (run by systemd). Options: `--config FILE`, `--state-dir DIR`, `--run-dir DIR`, `--no-nm` (do not use NetworkManager/iw), `--cleanup-pins` (remove recorded gateway pins and exit; run by systemd on stop), `-v/--verbose` |
-| `arcount-notify` | per-user popup agent, started at login; also shows the update notice. Options: `--sock PATH`, `--min-severity LEVEL` (default from config `[agent]`), `--no-update-check`, `-v` |
+| `arcount-notify` | per-user popup agent, started at login; shows the update notice and, if it was not running for a while, ONE "N alerts while you were away" summary. Options: `--sock PATH`, `--db PATH`, `--min-severity LEVEL` (default from config `[agent]`), `--no-update-check`, `-v` |
 | `python3 -m arcount.capture IFACE` | debug: print every ARP frame seen on an interface (needs root/CAP_NET_RAW) |
 
 ## Files and locations

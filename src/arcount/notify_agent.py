@@ -25,6 +25,7 @@ from .config import SEVERITIES, Config, ConfigError, Updates, load
 
 log = logging.getLogger("arcount-notify")
 DEFAULT_SOCK = "/run/arcount/arcount.sock"
+DEFAULT_DB = "/var/lib/arcount/arcount.db"
 MAX_BODY = 900
 
 # severity -> (notify-send urgency, icon)
@@ -132,6 +133,81 @@ def run_once(sock_path: str, min_severity: str, notify=show, stop=lambda: False)
                 notify(msg)
 
 
+# ---- alerts missed while the agent was not running -----------------------------------------
+ALIVE_EVERY = 60          # seconds between heartbeats
+AWAY_AFTER = 180          # a gap longer than this since the last heartbeat counts as "away"
+
+
+def _alive_file() -> str:
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(base, "arcount", "agent-alive")
+
+
+def read_alive(path: str | None = None) -> float | None:
+    try:
+        with open(path or _alive_file()) as f:
+            return float(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def write_alive(now: float | None = None, path: str | None = None) -> None:
+    path = path or _alive_file()
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        with open(path, "w") as f:
+            f.write(f"{now if now is not None else time.time():.0f}\n")
+    except OSError as e:
+        log.debug("cannot write heartbeat: %s", e)
+
+
+def heartbeat_loop(stop=lambda: False, sleep=time.sleep) -> None:
+    while not stop():
+        write_alive()
+        sleep(ALIVE_EVERY)
+
+
+def missed_alerts(db: str, since: float, min_severity: str) -> list:
+    """Alerts stored after `since` that were not silenced by a pause."""
+    from .store import Store
+    st = Store(db, readonly=True)            # raises if unreadable: the caller falls back
+    try:
+        return [e for e in st.events(since=since, min_severity=sev_rank(min_severity), limit=500)
+                if not e["paused"]]
+    finally:
+        st.close()
+
+
+def digest_alert(events: list, away_seconds: float) -> dict:
+    worst = max(events, key=lambda e: e["severity"])
+    names = SEVERITIES
+    hours = max(1, round(away_seconds / 3600))
+    span = f"{hours} h" if away_seconds >= 3600 else f"{max(1, round(away_seconds / 60))} min"
+    return {"severity_name": names[min(worst["severity"], len(names) - 1)],
+            "title": f"{len(events)} alert{'s' * (len(events) != 1)} while you were away",
+            "message": f"In the last {span}. Worst: {worst['title']}. "
+                       f"Details: arcount events --since {max(1, hours)}h"}
+
+
+def away_digest(db: str, min_severity: str, now: float | None = None, runner=subprocess.run,
+                alive_path: str | None = None) -> bool:
+    """On start: if the agent was not running for a while, summarise what it missed in ONE popup.
+    Returns True when the history was readable (the daemon's replayed alerts are then redundant)."""
+    now = now if now is not None else time.time()
+    last = read_alive(alive_path)
+    write_alive(now, alive_path)
+    if last is None or now - last < AWAY_AFTER:
+        return False
+    try:
+        events = missed_alerts(db, last, min_severity)
+    except Exception as e:
+        log.debug("cannot read history for the away digest: %s", e)
+        return False
+    if events:
+        runner(build_command(digest_alert(events, now - last)), timeout=10, check=False)
+    return True
+
+
 # ---- update notice ----------------------------------------------------------------------
 UPDATE_FIRST_DELAY = 45           # seconds after login: let the network come up first
 UPDATE_RETRY = 3600               # seconds before retrying after a failed check (offline, rate limit)
@@ -214,6 +290,7 @@ def maybe_restart_into_new_version(argv, here: str = __file__, running: str = __
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="arcount-notify")
     ap.add_argument("--sock", default=DEFAULT_SOCK)
+    ap.add_argument("--db", default=DEFAULT_DB, help="history database (for the away digest)")
     ap.add_argument("--min-severity", choices=SEVERITIES)
     ap.add_argument("--no-update-check", action="store_true",
                     help="do not look for new releases on GitHub (default: config [updates] check)")
@@ -231,10 +308,18 @@ def main(argv=None) -> int:
     min_sev = args.min_severity or cfg.agent.min_severity
     if cfg.updates.check and not args.no_update_check:
         threading.Thread(target=update_loop, args=(cfg.updates,), daemon=True).start()
+    covered = away_digest(args.db, min_sev)
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
+
+    def notify(alert):
+        if covered and alert.get("replayed"):
+            return                       # already summarised in the digest
+        show(alert)
+
     delay = 1.0
     while True:
         try:
-            run_once(args.sock, min_sev)
+            run_once(args.sock, min_sev, notify=notify)
             delay = 1.0
         except OSError as e:
             log.debug("daemon unavailable (%s)", e)

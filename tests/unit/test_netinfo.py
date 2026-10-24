@@ -95,3 +95,10 @@ def test_default_gateway_without_dev_key():
                                          "eth0") == "10.0.0.1"
     assert netinfo.parse_default_gateway(
         '[{"dst":"default","gateway":"10.0.0.1","dev":"wlan0"}]', "eth0") == ""
+
+
+def test_iw_ssid_escapes_are_decoded():
+    t = "Connected to 02:aa:bb:cc:00:01 (on wlan0)\n\tSSID: Home\\xe2\\x80\\x99s Net\n"
+    assert netinfo.parse_iw_link(t)[1] == "Home’s Net"
+    assert netinfo.unescape_iw("a\\\\x41") == "a\\x41"          # escaped backslash stays literal
+    assert netinfo.unescape_iw("\\xff") == "�"             # invalid UTF-8 is replaced, not fatal

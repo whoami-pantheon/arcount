@@ -113,6 +113,25 @@ def parse_nmcli_wifi_active(text: str) -> tuple[str, str]:
     return "", ""
 
 
+def unescape_iw(text: str) -> str:
+    """`iw` prints every non-ASCII SSID byte as \\xNN (and a backslash as \\\\); turn that back into text."""
+    out = bytearray()
+    i = 0
+    while i < len(text):
+        if text.startswith("\\\\", i):
+            out.append(0x5C)
+            i += 2
+            continue
+        m = re.match(r"\\x([0-9a-fA-F]{2})", text[i:])
+        if m:
+            out.append(int(m.group(1), 16))
+            i += 4
+        else:
+            out += text[i].encode("utf-8")
+            i += 1
+    return out.decode("utf-8", "replace")
+
+
 def parse_iw_link(text: str) -> tuple[str, str]:
     """Returns (bssid, ssid) from `iw dev X link`."""
     bssid = ssid = ""
@@ -122,7 +141,7 @@ def parse_iw_link(text: str) -> tuple[str, str]:
         if m:
             bssid = m.group(1).lower()
         elif line.startswith("SSID:"):
-            ssid = line[5:].strip()
+            ssid = unescape_iw(line[5:].strip())
     return bssid, ssid
 
 

@@ -156,6 +156,11 @@ def write_support_files(root: Path, data: Path, out: Out) -> bool:
         _write(cfg, (data / "arcount.toml.example").read_text(), 0o644, out, f"config {cfg}")
     changed |= _write(root / "etc/systemd/system/arcountd.service",
                       (data / "arcountd.service").read_text(), 0o644, out, "systemd unit")
+    polkit = root / "usr/share/polkit-1/actions"
+    if polkit.parent.exists():                 # only where polkit is installed
+        _write(polkit / "org.arcount.admin.policy",
+               (data / "org.arcount.admin.policy").read_text().replace("@PREFIX@", PREFIX),
+               0o644, out, "polkit action")
     _write(root / "etc/xdg/autostart/arcount-notify.desktop",
            (data / "arcount-notify.desktop").read_text(), 0o644, out, "desktop autostart")
     for link, target in ((root / "usr/local/bin/arcount", f"{PREFIX}/bin/arcount"),
@@ -242,7 +247,8 @@ def uninstall(args) -> int:
         _run([str(launcher), "--cleanup-pins"], check=False)
         out.ok("pinned neighbour entries removed")
     for p in ("/etc/systemd/system/arcountd.service", "/etc/xdg/autostart/arcount-notify.desktop",
-              "/usr/local/bin/arcount", "/usr/local/sbin/arcountd"):
+              "/usr/local/bin/arcount", "/usr/local/sbin/arcountd",
+              "/usr/share/polkit-1/actions/org.arcount.admin.policy"):
         Path(p).unlink(missing_ok=True)
     # the running process's own files live here; removing them is fine, python has them loaded
     shutil.rmtree(PREFIX, ignore_errors=True)

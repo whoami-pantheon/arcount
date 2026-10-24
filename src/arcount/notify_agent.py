@@ -56,6 +56,61 @@ def can_offer_disconnect(alert: dict, now: float | None = None) -> bool:
     return age <= OFFER_MAX_AGE
 
 
+MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+TAG_RE = re.compile(r"^v\d{1,4}\.\d{1,4}\.\d{1,4}$")
+ARCOUNT_BIN = "/opt/arcount/bin/arcount"      # the path the polkit action is bound to (see setup_cmd)
+
+
+def can_offer_trust(alert: dict, now: float | None = None) -> bool:
+    """A 'Trust' button only for a fresh, live, UNCONFIRMED gateway-MAC change with one plain MAC.
+
+    A confirmed attack never gets the button: the MAC in that alert is the attacker's.
+    """
+    if alert.get("replayed") or alert.get("confirmed") or alert.get("rules") != ["R01"]:
+        return False
+    macs = alert.get("macs") or []
+    if len(macs) != 1 or not MAC_RE.match(str(macs[0])):
+        return False
+    if not isinstance(alert.get("profile_id"), int) or not alert.get("title") == "Gateway MAC changed":
+        return False
+    age = (now if now is not None else time.time()) - float(alert.get("ts", 0) or 0)
+    return age <= OFFER_MAX_AGE
+
+
+def pkexec_command(*args: str) -> list[str]:
+    return ["pkexec", ARCOUNT_BIN, *args]
+
+
+def offer_action(alert: dict, key: str, label: str, argv: list[str], runner=subprocess.run) -> bool:
+    """Popup with one button. Runs `argv` (via polkit, which asks for the admin password) only
+    when the user clicks it."""
+    cmd = ["notify-send", "-a", "Arcount", "-u", "normal", "-i", "dialog-warning", "-t", "0",
+           "-A", f"{key}={label}", "-A", "no=Not now",
+           html.escape(str(alert.get("title", "Arcount"))),
+           html.escape(str(alert.get("message", "")))[:MAX_BODY]]
+    try:
+        r = runner(cmd, capture_output=True, text=True, timeout=OFFER_MAX_AGE, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log.error("notify-send failed: %s", e)
+        return False
+    if (getattr(r, "stdout", "") or "").strip() != key:
+        return True
+    log.warning("user chose %s: %s", key, " ".join(argv))
+    try:
+        d = runner(argv, capture_output=True, text=True, timeout=900, check=False)
+        ok, detail = d.returncode == 0, (d.stderr or d.stdout or "").strip()[-300:]
+    except (OSError, subprocess.TimeoutExpired) as e:
+        ok, detail = False, str(e)
+    done = {"severity_name": "low" if ok else "high",
+            "title": f"{label}: done" if ok else f"{label}: failed",
+            "message": detail or ("Finished." if ok else "The command did not complete.")}
+    try:
+        runner(build_command(done), timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return ok
+
+
 def build_command(alert: dict, offer: bool = False) -> list[str]:
     """notify-send argv. Title/body contain network-controlled text (SSIDs, hostnames) and
     notification servers render markup, so everything is HTML-escaped."""
@@ -72,6 +127,13 @@ def build_command(alert: dict, offer: bool = False) -> list[str]:
 
 
 def show(alert: dict, runner=subprocess.run, threaded: bool = True) -> bool:
+    if can_offer_trust(alert):
+        argv = pkexec_command("trust", str(alert["profile_id"]), alert["macs"][0])
+        return _spawn(offer_action, (alert, "trust", "Trust this gateway", argv, runner),
+                      threaded)
+    if alert.get("offer_update") and TAG_RE.match(str(alert.get("update_tag", ""))):
+        argv = pkexec_command("update", "--yes", "--tag", alert["update_tag"])
+        return _spawn(offer_action, (alert, "update", "Update now", argv, runner), threaded)
     if can_offer_disconnect(alert):
         if threaded:        # waiting for the click must not stall the alert stream
             threading.Thread(target=offer_disconnect, args=(alert, runner), daemon=True).start()
@@ -83,6 +145,13 @@ def show(alert: dict, runner=subprocess.run, threaded: bool = True) -> bool:
     except (OSError, subprocess.TimeoutExpired) as e:
         log.error("notify-send failed: %s", e)
         return False
+
+
+def _spawn(fn, args, threaded: bool) -> bool:
+    if threaded:                 # waiting for the click must not stall the alert stream
+        threading.Thread(target=fn, args=args, daemon=True).start()
+        return True
+    return fn(*args)
 
 
 def offer_disconnect(alert: dict, runner=subprocess.run) -> bool:
@@ -234,14 +303,15 @@ def check_for_update(updates: Updates, current: str = __version__, latest=github
     note = {"severity_name": "low", "title": f"Arcount {version} is available",
             "message": f"You have {current}. Update with: sudo arcount update  "
                        f"(release notes: github.com/{updates.repo}/releases). "
-                       f"Turn these notices off with [updates] check = false."}
-    runner(build_command(note), timeout=10, check=False)
+                       f"Turn these notices off with [updates] check = false.",
+            "offer_update": True, "update_tag": tag}
     try:
         os.makedirs(os.path.dirname(state_file), mode=0o700, exist_ok=True)
         with open(state_file, "w") as f:
             f.write(version + "\n")
     except OSError as e:
         log.debug("cannot remember notified version: %s", e)
+    show(note, runner=runner, threaded=False)     # blocks this thread, not the alerts, until answered
     return version
 
 

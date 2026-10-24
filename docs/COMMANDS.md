@@ -195,7 +195,7 @@ reviewing it. Use `--from` with a checkout you have reviewed if you prefer to in
 | Program | Purpose |
 |---|---|
 | `arcountd` | the daemon (run by systemd). Options: `--config FILE`, `--state-dir DIR`, `--run-dir DIR`, `--no-nm` (do not use NetworkManager/iw), `--cleanup-pins` (remove recorded gateway pins and exit; run by systemd on stop), `-v/--verbose` |
-| `arcount-notify` | per-user popup agent, started at login; shows the update notice and, if it was not running for a while, ONE "N alerts while you were away" summary. Options: `--sock PATH`, `--db PATH`, `--min-severity LEVEL` (default from config `[agent]`), `--no-update-check`, `-v` |
+| `arcount-notify` | per-user popup agent, started at login; shows the update notice (with an **Update now** button) and offers **Trust this gateway** on an unconfirmed gateway-MAC change (both ask for your admin password through polkit) and, if it was not running for a while, ONE "N alerts while you were away" summary. Options: `--sock PATH`, `--db PATH`, `--min-severity LEVEL` (default from config `[agent]`), `--no-update-check`, `-v` |
 | `python3 -m arcount.capture IFACE` | debug: print every ARP frame seen on an interface (needs root/CAP_NET_RAW) |
 
 ## Files and locations
@@ -208,6 +208,7 @@ reviewing it. Use `--from` with a checkout you have reviewed if you prefer to in
 | `/run/arcount/arcount.sock` | control socket (group `arcount`) |
 | `/etc/systemd/system/arcountd.service` | the service unit |
 | `/etc/xdg/autostart/arcount-notify.desktop` | starts the popup agent at login |
+| `/usr/share/polkit-1/actions/org.arcount.admin.policy` | lets the popup buttons ask for your admin password (installed only where polkit exists) |
 
 ## Configuration reference (`/etc/arcount/arcount.toml`)
 Every key, with its default. Omit anything you do not want to change. Edit with

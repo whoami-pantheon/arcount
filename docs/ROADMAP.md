@@ -25,7 +25,7 @@ IPv4-only monitoring leaves a gap. On most networks IPv6 is on whether or not th
   - Depends: `python3 (>= 3.11)`, `iproute2`. Recommends: `network-manager`, `iw`, `libnotify-bin`, `ieee-data`.
 - **Install layout:** move from `/opt/arcount` to `/usr/lib/python3/dist-packages/arcount` + `/usr/sbin/arcountd` + `/usr/bin/arcount`.
 - **Non-NetworkManager systems** (systemd-networkd, ConnMan, iwd): netinfo backends behind an interface; `--no-nm` mode becomes a real backend (read networkd leases from `/run/systemd/netif/leases/`; `iwctl` for SSID/BSSID).
-- **Desktop differences:** GNOME/KDE start the agent via a `graphical-session.target` user unit. Notification actions ("Trust" button) need a privileged path such as polkit (an action `org.arcount.trust`) rather than sudo.
+- **Desktop differences:** GNOME/KDE start the agent via a `graphical-session.target` user unit. (Popup "Trust" and "Update now" buttons via polkit are done: see DESIGN §15.)
 - **Multi-user laptops:** the agent runs per user; access is by group membership; alerts go to every subscribed session.
 - **Upgrades:** DB schema migrations must be forward-compatible. Pins are cleaned on upgrade (`prerm`).
 - **Other distros:** Arch PKGBUILD, Fedora RPM (SELinux policy for AF_PACKET + nmcli D-Bus).

@@ -517,7 +517,7 @@ IPv4-only monitoring leaves a gap. On most networks IPv6 is on whether or not th
   - Depends: `python3 (>= 3.11)`, `iproute2`. Recommends: `network-manager`, `iw`, `libnotify-bin`, `ieee-data`.
 - **Install layout:** move from `/opt/arcount` to `/usr/lib/python3/dist-packages/arcount` + `/usr/sbin/arcountd` + `/usr/bin/arcount`.
 - **Non-NetworkManager systems** (systemd-networkd, ConnMan, iwd): netinfo backends behind an interface; `--no-nm` mode becomes a real backend (read networkd leases from `/run/systemd/netif/leases/`; `iwctl` for SSID/BSSID).
-- **Desktop differences:** GNOME/KDE start the agent via a `graphical-session.target` user unit. Notification actions ("Trust" button) need a privileged path such as polkit (an action `org.arcount.trust`) rather than sudo.
+- **Desktop differences:** GNOME/KDE start the agent via a `graphical-session.target` user unit. (Popup "Trust" and "Update now" buttons via polkit are done: see DESIGN §15.)
 - **Multi-user laptops:** the agent runs per user; access is by group membership; alerts go to every subscribed session.
 - **Upgrades:** DB schema migrations must be forward-compatible. Pins are cleaned on upgrade (`prerm`).
 - **Other distros:** Arch PKGBUILD, Fedora RPM (SELinux policy for AF_PACKET + nmcli D-Bus).
@@ -626,3 +626,19 @@ min_severity = "medium"
 - **Wi-Fi client isolation** hides most broadcast traffic. Detection relies on the join probe, our own requests and the kernel neigh table.
 - **NM MAC randomisation per connection** changes `our_mac` between visits. That's harmless because identity doesn't use it.
 - **Docker/libvirt** bridges are excluded by default. If the user wants to monitor a bridge, `include` overrides the exclusions.
+
+## 15. Security review: popup actions through polkit
+
+**What was added.** Two buttons on desktop popups: *Trust this gateway* (R01 alerts) and *Update now* (update notice). Each runs `pkexec /opt/arcount/bin/arcount <trust|update ...>`. One polkit action, `org.arcount.admin`, is bound to that launcher path and requires **`auth_admin` on every use** (the admin password; no `_keep`), for an active local session only (`allow_any`/`allow_inactive` = no). So the buttons add convenience, not privilege: the user could already do the same with `sudo`.
+
+**Threats considered, and what stops them.**
+| Threat | Mitigation |
+|---|---|
+| The attacker's MAC is what the alert shows; a habitual click trusts it | no Trust button on **confirmed** attacks, replayed alerts, alerts older than 10 min, multi-MAC alerts or anything but a plain `Gateway MAC changed` R01; the password prompt is the second gate |
+| Network-controlled text (SSID, hostnames) reaching a command line | the argv is built only from validated fields: profile id must be an int, MAC must match `^[0-9a-f]{2}(:..){5}$`, tag must match `^v\d+\.\d+\.\d+$`; notification text is HTML-escaped; no shell is used |
+| Another local user or process triggering the action | polkit requires an active session and the admin password; the agent cannot authorise anything by itself |
+| Option injection (`--evil`) | values are validated as above and placed after the subcommand; tested |
+| A tampered release installed by "Update now" | unchanged: `arcount update` still verifies the signature against `allowed_signers`; the button passes `--tag` of the version that was announced |
+| Policy file points at a writable path | the action is bound to `/opt/arcount/bin/arcount`, a root-owned launcher |
+
+**Residual risk / not verified here.** The policy file is validated as XML and its path is checked against the launcher, and the click handling is unit-tested with a fake runner, but the actual polkit prompt could not be exercised in the rootless lab (no polkit agent or system bus). Test it once by hand on a real desktop: trigger `arcount test-alert`, then try `pkexec /opt/arcount/bin/arcount trust` from a terminal. Installed only where `/usr/share/polkit-1` exists; removed by `arcount setup --uninstall`.

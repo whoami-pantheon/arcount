@@ -1,5 +1,6 @@
 import json
 import socket
+import time
 import threading
 
 from arcount import netinfo, notify_agent as na
@@ -256,3 +257,68 @@ def test_away_digest_unreadable_history_falls_back_to_replays(tmp_path):
     na.write_alive(0, alive)
     assert na.away_digest(str(tmp_path / "nope.db"), "low", now=9999, runner=lambda *a, **k: None,
                           alive_path=alive) is False       # daemon's replayed alerts still show
+
+
+# ---- Trust / Update-now buttons (polkit) ---------------------------------------------------
+class _Run:
+    def __init__(self, answer):
+        self.calls, self.answer = [], answer
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(cmd)
+        from types import SimpleNamespace
+        out = self.answer if cmd[0] == "notify-send" and "-A" in cmd else ""
+        return SimpleNamespace(stdout=out, stderr="", returncode=0)
+
+
+def _r01(**kw):
+    a = {"rules": ["R01"], "macs": ["02:aa:bb:cc:00:99"], "profile_id": 3, "confirmed": False,
+         "title": "Gateway MAC changed", "message": "m", "ts": time.time(), "iface": "wlan0",
+         "severity_name": "medium"}
+    a.update(kw)
+    return a
+
+
+def test_trust_offered_only_for_fresh_unconfirmed_single_mac():
+    assert na.can_offer_trust(_r01())
+    assert not na.can_offer_trust(_r01(confirmed=True))                 # that MAC is the attacker's
+    assert not na.can_offer_trust(_r01(replayed=True))
+    assert not na.can_offer_trust(_r01(ts=time.time() - 3600))
+    assert not na.can_offer_trust(_r01(macs=["a", "b"]))
+    assert not na.can_offer_trust(_r01(macs=["--help"]))
+    assert not na.can_offer_trust(_r01(rules=["R01", "R02"]))
+    assert not na.can_offer_trust(_r01(profile_id="3; rm"))
+
+
+def test_trust_click_runs_pkexec_and_no_click_runs_nothing():
+    run = _Run("trust")
+    na.show(_r01(), runner=run, threaded=False)
+    assert ["pkexec", na.ARCOUNT_BIN, "trust", "3", "02:aa:bb:cc:00:99"] in run.calls
+    run = _Run("")
+    na.show(_r01(), runner=run, threaded=False)
+    assert not any(c[0] == "pkexec" for c in run.calls)
+
+
+def test_update_now_needs_a_plain_tag():
+    run = _Run("update")
+    na.show({"title": "t", "message": "m", "offer_update": True, "update_tag": "v1.2.3",
+             "severity_name": "low"}, runner=run, threaded=False)
+    assert ["pkexec", na.ARCOUNT_BIN, "update", "--yes", "--tag", "v1.2.3"] in run.calls
+    run = _Run("update")
+    na.show({"title": "t", "message": "m", "offer_update": True, "update_tag": "--evil",
+             "severity_name": "low"}, runner=run, threaded=False)
+    assert not any(c[0] == "pkexec" for c in run.calls)
+
+
+def test_polkit_policy_is_valid_and_bound_to_the_launcher(tmp_path):
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+    from arcount import setup_cmd
+    text = (Path(setup_cmd.__file__).parent / "data" / "org.arcount.admin.policy").read_text()
+    root = ET.fromstring(text.replace("@PREFIX@", setup_cmd.PREFIX))
+    action = root.find("action")
+    assert action.get("id") == "org.arcount.admin"
+    assert action.find("defaults/allow_active").text == "auth_admin"      # always a password
+    assert action.find("defaults/allow_any").text == "no"
+    path = action.find("annotate").text
+    assert path == na.ARCOUNT_BIN == f"{setup_cmd.PREFIX}/bin/arcount"

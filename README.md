@@ -44,7 +44,7 @@ minutes *learning* it, after which it is fully armed.
 ### Other ways to install
 **A signed release** (no git needed). Check the signature before you run anything from it:
 ```sh
-V=0.5.1
+V=0.5.2
 curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz
 curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz.sig
 tar xzf arcount-$V.tar.gz
@@ -340,7 +340,7 @@ a network's usage along with the rest of its history.
   history alone. Look at "SITE: new" and unfamiliar gateway vendors.
 - **Detection, not a shield.** Use a VPN and HTTPS; Arcount tells you the local network is being
   tampered with.
-- **Not yet verified on real hardware (v0.5.1).** These parts are unit-tested with fakes but were
+- **Not yet verified on real hardware (v0.5.2).** These parts are unit-tested with fakes but were
   not exercised end to end:
   - the polkit password prompt behind the popup "Trust" / "Update now" buttons (the rootless lab
     cannot show one; try it once on a real desktop, see `docs/DESIGN.md` §15);

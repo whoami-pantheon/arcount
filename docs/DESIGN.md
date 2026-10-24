@@ -93,6 +93,7 @@ Arcount/
     cli.py                    # argument parser + main (§8); wires up commands/
     commands/                 # one module per family: inspect, usage, admin, maintain, common helpers
     bpf.py                    # kernel packet filters for AF_PACKET sockets (ARP, IPv4, IPv6 RA)
+    devtype.py                # device-type guess from the vendor name (offline hint, "?" when ambiguous)
     ra.py                     # IPv6 router-advertisement parser (R14)
     usage.py                  # traffic usage meter (opt-in)
     alerts/remote.py          # queue + retry + secrets for the ntfy and email sinks

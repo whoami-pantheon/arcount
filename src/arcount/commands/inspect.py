@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .. import __version__
 from ..detector import Severity
+from ..devtype import guess
 from ..oui import describe_kind, label, mac_kind, Oui
 from ..store import Store
 from .common import CliError, ctl, fmt_bits, fmt_bytes, fmt_ts, need_profile, open_store, parse_duration, short_mac, table
@@ -115,11 +116,12 @@ def cmd_hosts(args) -> int:
               and (args.max_days is None or h["days"] <= args.max_days)]
         hs.sort(key=keys[args.sort])
         rows = [[h["ip"], h["mac"], names.get(h["mac"], ""), label(oui, h["mac"])[:30],
+                 guess(oui.vendor(h["mac"]), h["mac"], h["ip"] == p["gateway_ip"])[:30],
                  fmt_ts(h["first_seen"]), fmt_ts(h["last_seen"]), h["seen_count"], h["visits"],
                  h["days"]] for h in hs]
         print(("\n" if n else "") + f"# {p['name']}{window}")
-        print(table(rows, ["IP", "MAC", "NAME", "VENDOR", "FIRST SEEN", "LAST SEEN", "COUNT",
-                           "VISITS", "DAYS"])
+        print(table(rows, ["IP", "MAC", "NAME", "VENDOR", "LIKELY TYPE", "FIRST SEEN",
+                           "LAST SEEN", "COUNT", "VISITS", "DAYS"])
               if rows else "no hosts")
     return 0
 
@@ -188,6 +190,9 @@ def cmd_mac(args) -> int:
                   + ("" if Path("/usr/share/ieee-data/oui.csv").exists()
                      else " (install the 'ieee-data' package for vendor names)"))
         print(f"  type      {describe_kind(kind)}")
+        likely = guess(vendor, mac)
+        if likely:
+            print(f"  likely    {likely}   (a guess from the maker's name)")
         if st is None:
             print("  history   (no history database available)")
             continue

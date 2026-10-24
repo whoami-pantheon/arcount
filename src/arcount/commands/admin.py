@@ -71,8 +71,12 @@ def cmd_reject(args) -> int:
 def cmd_rename(args) -> int:
     st = open_store(args, True)
     p = need_profile(st, args.profile)
+    if any(o["name"] == args.name and o["id"] != p["id"] for o in st.list_profiles()):
+        raise CliError(f"another network is already called {args.name!r}; "
+                       "`arcount forget` the duplicate first")
     st.rename_profile(p["id"], args.name)
     print(f"renamed {p['name']!r} -> {args.name!r}")
+    refresh_daemon(args)
     return 0
 
 

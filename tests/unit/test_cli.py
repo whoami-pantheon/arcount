@@ -79,10 +79,16 @@ def test_trust_reject_rename_forget(capsys, env):
     st.close()
     run(capsys, env, "rename", str(pid), "Home")
     st = Store(db)
+    other = st.create_profile("wifi", "Other", "Other", "10.20.30.0/24", "10.20.30.1", 1.0)
+    st.close()
+    rc, _, err = run(capsys, env, "rename", str(other), "Home")
+    assert rc == 1 and "already called" in err
+    st = Store(db)
     assert st.get_profile(pid)["name"] == "Home"
     st.close()
     rc, out, _ = run(capsys, env, "forget", "Home")
     assert rc == 0 and "events kept" in out
+    run(capsys, env, "forget", "Other")
     st = Store(db)
     assert st.list_profiles() == [] and st.get_event("abcdef1234567890")["profile_id"] is None
     st.close()

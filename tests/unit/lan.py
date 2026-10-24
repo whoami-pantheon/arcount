@@ -39,6 +39,13 @@ class FakeCapture:
     def close(self):
         self.closed = True
 
+    ra_sock = None
+    ras = ()
+
+    def read_ra(self):
+        out, self.ras = list(self.ras), []
+        return out
+
     def inject(self, sha, spa, tpa=OUR_IP, op=2, eth_dst=OUR_MAC, pkttype=arp.PKT_HOST):
         tha = OUR_MAC if op == 2 else arp.ZERO_MAC
         self.inbox.append(arp.Frame(self.lan.clock.wall(), "wlan0", pkttype, sha, eth_dst, op,
@@ -72,6 +79,7 @@ class Lan:
         self.cmds = []
         self.nm_ready_at = nm_ready_at
         self.ssid, self.bssid = ssid, bssid
+        self.dhcp = ""
         self.gateway_ip, self.subnet = GW_IP, "10.0.0.0/24"
         self.cap = None
         self.t0 = self.clock.monotonic()
@@ -95,7 +103,8 @@ class Lan:
         ready = self.clock.monotonic() - self.t0 >= self.nm_ready_at
         return NetworkSignals(iface, kind="wifi", nm_uuid="u1", nm_name="HomeWifi" if ready else "",
                               ssid=self.ssid, bssid=self.bssid, our_ip=OUR_IP, prefix=24,
-                              subnet=self.subnet, our_mac=OUR_MAC, gateway_ip=self.gateway_ip)
+                              subnet=self.subnet, our_mac=OUR_MAC, gateway_ip=self.gateway_ip,
+                              dhcp_server_id=self.dhcp)
 
     def make_cap(self, iface):
         self.cap = FakeCapture(self)

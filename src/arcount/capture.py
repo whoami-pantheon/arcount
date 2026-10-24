@@ -4,7 +4,7 @@ from __future__ import annotations
 import socket
 import sys
 
-from . import arp, bpf
+from . import arp, bpf, ra
 from .clock import RealClock
 
 
@@ -15,6 +15,11 @@ class Capture:
         # ETH_P_ALL + ARP-only kernel filter: a protocol-specific socket never sees our OWN
         # outgoing requests, which the detector needs to tell solicited replies from forged ones.
         self.sock = bpf.open_raw(iface, arp.ETH_P_ARP)
+        # IPv6 Router Advertisements (rule R14); optional, ARP detection must not depend on it
+        try:
+            self.ra_sock = bpf.open_raw(iface, program=bpf.router_advert_program())
+        except OSError:
+            self.ra_sock = None
 
     def fileno(self) -> int:
         return self.sock.fileno()
@@ -34,11 +39,25 @@ class Capture:
                 out.append(f)
         return out
 
+    def read_ra(self) -> list[ra.RouterAdvert]:
+        out = []
+        while self.ra_sock is not None:
+            try:
+                data, addr = self.ra_sock.recvfrom(2048)
+            except OSError:
+                break
+            r = ra.parse(data, self.clock.wall(), self.iface, addr[2])
+            if r:
+                out.append(r)
+        return out
+
     def send_request(self, our_mac: str, our_ip: str, target_ip: str) -> None:
         self.sock.send(arp.build_request(our_mac, our_ip, target_ip))
 
     def close(self) -> None:
         self.sock.close()
+        if self.ra_sock is not None:
+            self.ra_sock.close()
 
 
 def _debug(iface: str) -> int:

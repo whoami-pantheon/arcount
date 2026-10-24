@@ -252,6 +252,9 @@ Severities, lowest first: `info`, `low`, `medium`, `high`, `critical`.
 | R09 | a known host's MAC changed |
 | R10 | new device on a network (info) |
 | R11 | new network (info) |
+| R12 | known network answered by a DHCP server it never used before (medium) |
+| R13 | known SSID joined through an access point of an unfamiliar vendor (medium) |
+| R14 | IPv6 router advertisement from a MAC the network never had; learned during learning (medium) |
 
 Severity: `info < low < medium < high < critical`. A **confirmed** alert means an active probe
 proved it. With `disconnect = "off"` a confirmed gateway attack of `high` or above shows a popup

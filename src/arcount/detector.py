@@ -1,4 +1,4 @@
-"""Rule engine R01-R11. Pure: no I/O, time comes from frames / arguments."""
+"""Rule engine R01-R11 (R12-R14 are raised by the session). Pure: no I/O, time comes from frames / arguments."""
 from __future__ import annotations
 
 import ipaddress

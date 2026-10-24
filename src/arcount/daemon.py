@@ -136,10 +136,17 @@ class Daemon:
     # ---- selector plumbing ----------------------------------------------------------
     def _register(self, session) -> None:
         self.sel.register(session.cap.sock, selectors.EVENT_READ, ("session", session))
+        ra_sock = getattr(session.cap, "ra_sock", None)
+        if ra_sock is not None:
+            self.sel.register(ra_sock, selectors.EVENT_READ, ("session-ra", session))
 
     def _unregister(self, session) -> None:
         try:
             self.sel.unregister(session.cap.sock)
+        except (KeyError, ValueError, AttributeError):
+            pass
+        try:
+            self.sel.unregister(session.cap.ra_sock)
         except (KeyError, ValueError, AttributeError):
             pass
 
@@ -191,6 +198,8 @@ class Daemon:
             kind, obj = key.data
             if kind == "session":
                 obj.on_readable()
+            elif kind == "session-ra":
+                obj.on_ra_readable()
             elif kind == "usage-peers":
                 self.usage.on_readable(obj)
             elif kind == "netwatch":

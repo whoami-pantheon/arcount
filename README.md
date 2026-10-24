@@ -107,6 +107,9 @@ everything is in the journal (`journalctl -u arcountd`) and `arcount events`.
 | R08 | A flood of unsolicited ARP replies |
 | R09 | A known host's MAC changed |
 | R10 / R11 | New device / new network (informational) |
+| R12 | A known network was served by a DHCP server it has never used (possible rogue DHCP) |
+| R13 | Same network name, but the access point's vendor matches none you used there before (possible evil twin) |
+| R14 | An IPv6 router advertised itself that this network never had (possible rogue router advertisement) |
 
 Gateway findings are **confirmed** by an active probe (about 1.5 s) and marked
 "Confirmed by active probe" if a second device answers or the forgery repeats.
@@ -257,7 +260,7 @@ What setup installs: program in `/opt/arcount`, config in `/etc/arcount`, histor
 
 A root systemd service listens for ARP on each interface (raw `AF_PACKET`, no external tools),
 watches interface/route changes to notice networks coming and going, and keeps a SQLite history per
-network. A rule engine (R01–R11) judges every frame; suspicious findings are verified with live ARP
+network. A rule engine (R01–R14) judges every frame; suspicious findings are verified with live ARP
 probes before being reported. Alerts go to the journal and, over a root-owned local socket, to a
 per-user agent that shows popups. Hardened unit (`systemd-analyze security`: 3.0), only
 `CAP_NET_RAW` and `CAP_NET_ADMIN`. Details: [`docs/DESIGN.md`](docs/DESIGN.md).

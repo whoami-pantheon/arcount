@@ -110,6 +110,8 @@ class Session:
         self._replaced_since: float | None = None
         self._replaced_alerted = False
         self._pending: dict[str, _Group] = {}   # ip -> findings awaiting a confirmation probe
+        self._ra_alerted: set[str] = set()
+        self._res = None
         self._gen = 0              # bumped on every (re)identification; stale callbacks check it
 
     # ---- lifecycle ------------------------------------------------------------
@@ -243,6 +245,7 @@ class Session:
         prof = ctx.store.get_profile(res.profile_id)
         self.profile_id, self.profile_name = res.profile_id, prof["name"]
         self.site, self.new_profile = res.site, res.created
+        self._res = res
         det = Detector(ctx.cfg.detection, sig.our_ip, sig.our_mac, sig.subnet, sig.gateway_ip,
                        sig.kind, res.site)
         det.set_gateway_macs(ctx.store.gateway_macs(res.profile_id))
@@ -312,6 +315,7 @@ class Session:
         if learning:
             self._learn_end = mono + ctx.cfg.detection.learning_seconds
             self._learn_incidents = 0
+        findings.extend(self._infrastructure_findings())
         for f in findings:
             det.finish(f)
         self._handle_findings(findings, now, verified=res if res.responders else None)
@@ -327,6 +331,52 @@ class Session:
                 self._handle_findings(det.feed_neigh(gw, m, now), now)
         if self.state == State.MONITORING:
             self._maybe_pin()
+
+    def _infrastructure_findings(self) -> list[Finding]:
+        """R12 / R13: things about a KNOWN network that changed since the last visit."""
+        r, out = self._res, []
+        if r.new_dhcp:
+            out.append(Finding(
+                "R12", Severity.MEDIUM, "DHCP server changed",
+                f"{self.profile_name} was served by {', '.join(r.old_dhcp)} before; this time "
+                f"{r.new_dhcp} answered. A second DHCP server can hand out a rogue gateway or DNS.",
+                details={"expected": list(r.old_dhcp), "seen": r.new_dhcp}))
+        if r.new_ap_vendor:
+            out.append(Finding(
+                "R13", Severity.MEDIUM, "Same network name, different access point",
+                f"You joined {self.profile_name} through access point {self.sig.bssid}, whose "
+                f"vendor differs from every access point you used here before. Normal if the "
+                f"network was upgraded; otherwise a possible evil twin.",
+                macs=[self.sig.bssid], details={"bssid": self.sig.bssid}))
+        return out
+
+    def on_ra_readable(self) -> None:
+        if self.cap is None:
+            return
+        for r in self.cap.read_ra():
+            if self.state in (State.LEARNING, State.MONITORING):
+                self._handle_ra(r)
+
+    def _handle_ra(self, r) -> None:
+        """R14: a router advertising itself that this network has never had before."""
+        ctx, pid = self.ctx, self.profile_id
+        if r.lifetime == 0 or r.eth_src == self.sig.our_mac:
+            return
+        known = ctx.store.signals(pid, "ra_router")
+        if r.eth_src in known:
+            return
+        if self.state == State.LEARNING or r.eth_src in self.detector.known_gw():
+            ctx.store.add_signal(pid, "ra_router", r.eth_src, r.ts)
+            return
+        if r.eth_src in self._ra_alerted:
+            return
+        self._ra_alerted.add(r.eth_src)
+        f = Finding("R14", Severity.MEDIUM, "Unknown IPv6 router",
+                    f"{r.eth_src} ({r.src_ip}) advertised itself as an IPv6 default router on "
+                    f"{self.profile_name}. A rogue router advertisement redirects IPv6 traffic.",
+                    macs=[r.eth_src], details={"src_ip": r.src_ip, "lifetime": r.lifetime})
+        self.detector.finish(f)
+        self._handle_findings([f], r.ts)
 
     def _announce_new_network(self, responders: list[str]) -> None:
         gw = self.sig.gateway_ip

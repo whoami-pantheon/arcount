@@ -17,6 +17,9 @@ class Resolution:
     profile_id: int
     created: bool
     site: str          # "known" | "new"  (new = same SSID seen via an unfamiliar BSSID)
+    new_dhcp: str = ""        # a DHCP server never seen on this (known) network before
+    old_dhcp: tuple = ()      # the ones it has used
+    new_ap_vendor: bool = False   # new BSSID whose vendor prefix matches none of the known APs
 
 
 def _conflicts(store: Store, pid: int, s: NetworkSignals) -> bool:
@@ -51,6 +54,12 @@ def resolve(store: Store, s: NetworkSignals, now: float) -> Resolution:
             site = "new"
         res = Resolution(pid, False, site)
         store.touch_profile(pid, now)
+        stored = store.signals(pid, "dhcp_server_id")
+        if s.dhcp_server_id and stored and s.dhcp_server_id not in stored:
+            res.new_dhcp, res.old_dhcp = s.dhcp_server_id, tuple(sorted(stored))
+        if site == "new":
+            known_prefixes = {b[:8] for b in store.bssids(pid)}
+            res.new_ap_vendor = bool(known_prefixes) and s.bssid[:8] not in known_prefixes
 
     for key, val in (("dhcp_server_id", s.dhcp_server_id), ("domain_name", s.domain_name)):
         if val:

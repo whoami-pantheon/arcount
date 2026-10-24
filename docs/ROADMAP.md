@@ -1,6 +1,8 @@
 # Arcount roadmap (deferred work)
 
 ## IPv6 / NDP (next major feature)
+**Done so far:** rogue Router Advertisements from an unfamiliar MAC (rule R14, kernel BPF filter in `bpf.py`). Everything else below is still open.
+
 IPv4-only monitoring leaves a gap. On most networks IPv6 is on whether or not the user relies on it.
 - **Attacks to cover:**
   - Neighbor Advertisement spoofing (the ARP-poisoning equivalent; Override flag)
@@ -17,7 +19,8 @@ IPv4-only monitoring leaves a gap. On most networks IPv6 is on whether or not th
 - **Schema:** the `family` column already exists. Add `profile_routers` and `profile_prefixes` tables.
 
 ## Packaging for other laptops
-- **`.deb`** (debhelper):
+**Done so far:** `packaging/make-deb.sh` builds a thin `.deb` that runs the same installer; signed-release install steps are in the README. Still open: a proper debhelper package (conffile handling, `deb-systemd-helper`), a signed apt repository, and the notes below.
+- **`.deb`** (debhelper, the full version):
   - `postinst` creates the `arcount` system group and adds `SUDO_USER` or prompts.
   - `/etc/arcount/arcount.toml` as a conffile.
   - Enable the unit via `deb-systemd-helper`.
@@ -46,3 +49,7 @@ IPv4-only monitoring leaves a gap. On most networks IPv6 is on whether or not th
 - Evil-twin heuristics: the same SSID with a different BSSID OUI, or a security type downgrade.
 - A tray icon with live status.
 
+## Per-device bandwidth (other people's devices)
+Not possible from a normal client: a switched or Wi-Fi client never receives other devices' traffic, and Arcount will not ARP-spoof to get it. Two honest routes, neither built because they need hardware to test:
+- **From the router:** read per-client counters (OpenWrt `nlbwmon`/`bandwidthd`, SNMP, or a router API) and show them in `arcount usage`. Needs a router that exposes them.
+- **Monitor mode:** a second Wi-Fi adapter in monitor mode on the same channel can count frame sizes per source (encrypted payloads stay unreadable, but sizes and addresses are visible). Needs a monitor-capable adapter and only works on the channel it listens on.

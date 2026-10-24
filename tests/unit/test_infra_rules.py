@@ -51,7 +51,9 @@ def test_dhcp_server_change_on_known_network_alerts(tmp_path):
     assert len(a) == 1 and "10.0.0.99" in a[0].message and "10.0.0.1" in a[0].message
     # not silently accepted: it alerts again on the next join (once per session) until trusted
     s.stop(); s = lan.session(); lan.run(s, 3)
-    assert a[0].count == 2                 # same alert, merged by the dispatcher's dedup window
+    assert a[0].count == 2                 # merged by the dispatcher's dedup window
+    quiet = s._infrastructure_findings()   # later joins: still logged, but low severity (no popup)
+    assert [(f.rule, f.severity.name) for f in quiet] == [("R12", "LOW")]
     pid = lan.store.list_profiles()[0]["id"]
     assert "10.0.0.99" not in lan.store.signals(pid, "dhcp_server_id")
     lan.store.add_signal(pid, "dhcp_server_id", "10.0.0.99", 99.0)   # what `arcount trust` does

@@ -125,7 +125,7 @@ Keys are listed in [`arcount.toml.example`](../src/arcount/data/arcount.toml.exa
 ### `sudo arcount trust <network> <mac>`
 Accept a gateway MAC for a network (e.g. you replaced the router): it becomes `user_trusted` and the network `trusted`. The daemon is told to re-read it.
 
-Give a DHCP server IPv4 address instead of a MAC (`sudo arcount trust HomeWifi 10.20.30.1`) to accept that server for the network after an R12 alert (a new router). The R12 popup has an "Accept this DHCP server" button that runs exactly this through polkit. Nothing else accepts it: a flagged server keeps alerting on every join.
+Give a DHCP server IPv4 address instead of a MAC (`sudo arcount trust HomeWifi 10.20.30.1`) to accept that server for the network after an R12 alert (a new router). The R12 popup has an "Accept this DHCP server" button that runs exactly this through polkit. Nothing else accepts it: a flagged server is never accepted on its own. It pops up once; later joins only log a low-severity "still not accepted" event (no popup).
 ### `sudo arcount reject <network> <mac>`
 Mark a MAC hostile for a network: it will always raise a critical alert.
 ### `arcount name [<mac> "<label>"] [--remove]` (sudo to change)
@@ -286,7 +286,7 @@ Privacy: with the default `redact = true` the message that leaves your laptop sa
 | R09 | a known host's MAC changed |
 | R10 | new device on a network (info) |
 | R11 | new network (info) |
-| R12 | known network answered by a DHCP server it never used before (medium); repeats on every join until `arcount trust <network> <server-ip>` accepts it |
+| R12 | known network answered by a DHCP server it never used before (medium); later joins log low-severity (no popup) until `arcount trust <network> <server-ip>` accepts it |
 | R13 | known SSID joined through an access point of an unfamiliar vendor (medium) |
 | R14 | IPv6 router advertisement from a MAC the network never had; learned during learning (medium) |
 | R15 | new unnamed device on a network where you named devices (medium) |

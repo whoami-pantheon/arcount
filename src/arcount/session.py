@@ -335,7 +335,15 @@ class Session:
     def _infrastructure_findings(self) -> list[Finding]:
         """R12 / R13: things about a KNOWN network that changed since the last visit."""
         r, out = self._res, []
-        if r.new_dhcp:
+        if r.new_dhcp and r.new_dhcp in self.ctx.store.signals(self.profile_id, "dhcp_alerted"):
+            out.append(Finding(     # already told once: stay visible in the log, stop the popups
+                "R12", Severity.LOW, "DHCP server still not accepted",
+                f"{r.new_dhcp} answered on {self.profile_name} again and is not accepted yet. "
+                f"If it is expected: sudo arcount trust \"{self.profile_name}\" {r.new_dhcp}",
+                details={"expected": list(r.old_dhcp), "seen": r.new_dhcp}))
+        elif r.new_dhcp:
+            self.ctx.store.add_signal(self.profile_id, "dhcp_alerted", r.new_dhcp,
+                                      self.ctx.clock.wall())
             out.append(Finding(
                 "R12", Severity.MEDIUM, "DHCP server changed",
                 f"{self.profile_name} was served by {', '.join(r.old_dhcp)} before; this time "

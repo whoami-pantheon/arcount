@@ -128,7 +128,7 @@ everything is in the journal (`journalctl -u arcountd`) and `arcount events`.
 | R08 | A flood of unsolicited ARP replies |
 | R09 | A known host's MAC changed |
 | R10 / R11 | New device / new network (informational) |
-| R12 | A known network was served by a DHCP server it has never used (possible rogue DHCP). It keeps alerting on every join until you click **Accept this DHCP server** in the popup (admin password) or run `sudo arcount trust "<network>" <server-ip>` |
+| R12 | A known network was served by a DHCP server it has never used (possible rogue DHCP). It is never accepted on its own: the first alert pops up once, later joins only add a low-severity line to `arcount events` (no popup), until you click **Accept this DHCP server** in the popup (admin password) or run `sudo arcount trust "<network>" <server-ip>` |
 | R13 | Same network name, but the access point's vendor matches none you used there before (possible evil twin) |
 | R14 | An IPv6 router advertised itself that this network never had (possible rogue router advertisement) |
 | R15 | A new device you have not named joined a network where you named devices |

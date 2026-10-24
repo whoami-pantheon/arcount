@@ -275,7 +275,7 @@ The detector holds per-session in-memory state (recent claims per IP, recent req
 | R09 | `host_mac_changed` | A known non-gateway IP has a new MAC | **low** if the new MAC is LAA or the old entry is >24 h stale; else **medium** |
 | R10 | `new_station` | First time this (ip, mac) is seen in this profile | **info** (journal only) |
 | R11 | `new_network` | Profile created. Annotation includes the gateway vendor (OUI) and LAA flag, as a hint only | **info**, shown on the desktop |
-| R12 | `dhcp_server_changed` | Join-time: a DHCP server id not among those stored for a known profile. Never auto-learned after alerting: only `arcount trust <net> <ip>` adds it | **medium** |
+| R12 | `dhcp_server_changed` | Join-time: a DHCP server id not among those stored for a known profile. Never auto-learned: first alert is medium with a popup (`dhcp_alerted` signal), later joins are low and quiet; only `arcount trust <net> <ip>` / the popup button accepts it | **medium** |
 | R13 | `access_point_changed` | Join-time: new BSSID on a known Wi-Fi profile whose OUI prefix matches no stored BSSID | **medium** |
 | R14 | `rogue_router_advert` | ICMPv6 RA (lifetime > 0) from a MAC not seen as RA source during learning and not a known gateway | **medium** |
 

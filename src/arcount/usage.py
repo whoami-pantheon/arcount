@@ -129,10 +129,12 @@ class UsageService:
     """Owned by the daemon: samples counters, optionally per-peer sockets, writes to the store."""
 
     def __init__(self, store, clock, sessions, sel, get_cfg, reader=read_counters,
-                 peer_factory=PeerCapture):
+                 peer_factory=PeerCapture, on_budget=None, is_metered=lambda pid: False):
         self.store, self.clock, self.sessions = store, clock, sessions   # sessions: () -> {iface: pid}
         self.sel, self.get_cfg, self.peer_factory = sel, get_cfg, peer_factory
         self.meter = Meter(reader)
+        self.on_budget, self.is_metered = on_budget, is_metered
+        self._warned: set[tuple[int, str]] = set()
         self.peers: dict[str, PeerCapture] = {}
         self._day: dict[tuple[int, str], list[int]] = {}
         self._peer_day: dict[tuple[int, str, str], list[int]] = {}
@@ -206,8 +208,26 @@ class UsageService:
                 self.store.add_usage(pid, d, rx, tx)
             if peers:
                 self.store.add_usage_peers((p, d, ip, rx, tx) for (p, d, ip), (rx, tx) in peers.items())
+            self._check_budget(day)
         except Exception:
             log.exception("could not store usage")
+
+    def _check_budget(self, touched) -> None:
+        cfg = self.get_cfg()
+        if self.on_budget is None or not (cfg.warn_mb or cfg.metered_warn_mb):
+            return
+        for pid, d in touched:
+            if (pid, d) in self._warned:
+                continue
+            rows = self.store.usage(pid, d)
+            used = sum(r["rx"] + r["tx"] for r in rows if r["day"] == d)
+            lowest = min(x for x in (cfg.warn_mb, cfg.metered_warn_mb) if x)
+            if used < lowest * 1_000_000:
+                continue                              # cheap exit: no nmcli call below the limit
+            limit = (cfg.metered_warn_mb or cfg.warn_mb) if self.is_metered(pid) else cfg.warn_mb
+            if limit and used >= limit * 1_000_000:
+                self._warned.add((pid, d))
+                self.on_budget(pid, d, used, limit)
 
     def status(self) -> dict:
         return {"enabled": self.enabled, "per_host": bool(self.get_cfg().per_host and self.peers),

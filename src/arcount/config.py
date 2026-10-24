@@ -96,6 +96,8 @@ class Usage:
     sample_seconds: float = 5
     per_host: bool = False                  # also count bytes per remote IP (costs CPU)
     ttl_days: int = 400
+    warn_mb: float = 0                      # warn once a day when a network passes this many MB (0 = off)
+    metered_warn_mb: float = 0              # same, for networks NetworkManager marks metered (0 = use warn_mb)
 
 
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
@@ -164,6 +166,8 @@ def validate(cfg: Config) -> None:
         raise ConfigError("[updates] interval_hours must be at least 1")
     if cfg.usage.sample_seconds < 1:
         raise ConfigError("[usage] sample_seconds must be at least 1")
+    if cfg.usage.warn_mb < 0 or cfg.usage.metered_warn_mb < 0:
+        raise ConfigError("[usage] warn_mb and metered_warn_mb cannot be negative")
     if cfg.usage.ttl_days <= 0:
         raise ConfigError("[usage] ttl_days must be positive")
     d = cfg.detection

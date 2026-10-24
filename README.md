@@ -156,7 +156,7 @@ include = ["wlan0"]
 are watched **at the same time** (e.g. Wi-Fi and Ethernet), each with its own state and trust.
 
 ### Disconnect offer
-With `disconnect = "off"` (the default) a **confirmed** attack on your gateway still produces a
+Arcount **never** disconnects you unless you turn it on yourself. With `disconnect = "off"` (the default) a **confirmed** attack on your gateway still produces a
 popup with **Disconnect** and **Stay connected** buttons. Nothing happens unless you click
 Disconnect (it runs `nmcli device disconnect <iface>` as you). Set `disconnect` to
 `confirmed_high` / `confirmed_critical` to do it automatically instead.
@@ -282,8 +282,18 @@ arcount usage --top 10        # busiest remote hosts (needs [usage] per_host = t
 It uses the kernel's own counters, so it is cheap. It does **not** show other devices' traffic: a
 normal Wi-Fi or switched-Ethernet client never receives it, and Arcount will not ARP-spoof to get it.
 
+**Data warnings.** Set `warn_mb` (and, for networks NetworkManager marks *metered*, `metered_warn_mb`)
+under `[usage]` to get one desktop popup per day per network when this laptop passes that amount.
+
+**Privacy.** Per-host counting (`per_host = true`) records which remote IP addresses you talk to, i.e.
+a pattern of your browsing, and anyone in the `arcount` group can read it. It is off by default.
+Both the totals and the per-host table are kept for **400 days** (`[usage] ttl_days`) and are then
+deleted automatically; lower it if you want less history. `sudo arcount forget "<network>"` deletes
+a network's usage along with the rest of its history.
+
 ## Limitations — please read
-- **IPv4 only.** IPv6 attacks (rogue router advertisements, NDP spoofing) are not covered yet.
+- **ARP is IPv4.** For IPv6 only rogue router advertisements (R14) are watched; NDP spoofing is not
+  covered yet.
 - **Visibility.** On switched or isolated Wi-Fi you only see broadcast traffic and traffic sent to
   you; an attacker who never touches you can be invisible.
 - **First contact.** A network that is hostile the first time you join it gets no warning from

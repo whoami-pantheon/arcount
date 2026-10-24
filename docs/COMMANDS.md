@@ -240,7 +240,9 @@ Every key, with its default. Omit anything you do not want to change. Edit with
 | `usage.enabled` | `false` | measure this machine's traffic per network (`arcount usage`); opt-in |
 | `usage.sample_seconds` | `5` | how often the counters are read (minimum 1) |
 | `usage.per_host` | `false` | also count bytes per remote IPv4 address (an extra raw socket; costs CPU on fast links) |
-| `usage.ttl_days` | `400` | forget usage history older than this |
+| `usage.ttl_days` | `400` | forget usage history older than this (applies to the per-host table too) |
+| `usage.warn_mb` | `0` | desktop popup, once per day per network, when this laptop has used that many MB (0 = off) |
+| `usage.metered_warn_mb` | `0` | same, but for networks NetworkManager marks metered (`nmcli connection modify <name> connection.metered yes`); 0 = use `warn_mb` |
 
 Severities, lowest first: `info`, `low`, `medium`, `high`, `critical`.
 

@@ -27,6 +27,17 @@ def run_cmd(cmd: list[str], timeout: float = 5.0) -> str | None:
     return r.stdout if r.returncode == 0 else None
 
 
+def parse_metered(text: str | None) -> bool:
+    """`nmcli -g connection.metered` output -> is the connection metered (yes / guess-yes)."""
+    return (text or "").strip().lower() in ("yes", "guess-yes")
+
+
+def nm_metered(nm_uuid: str, run=run_cmd) -> bool:
+    if not nm_uuid:
+        return False
+    return parse_metered(run(["nmcli", "-g", "connection.metered", "connection", "show", nm_uuid]))
+
+
 @dataclass
 class NetworkSignals:
     iface: str

@@ -95,3 +95,5 @@ enabled = false
 sample_seconds = 5               # how often counters are read (minimum 1)
 per_host = false                 # also count bytes per remote IP (extra raw socket; costs CPU)
 ttl_days = 400                   # forget usage history older than this
+warn_mb = 0                      # popup once a day when a network passes this many MB (0 = off)
+metered_warn_mb = 0              # same, for networks NetworkManager marks "metered" (0 = use warn_mb)

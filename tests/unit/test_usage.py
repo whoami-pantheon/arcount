@@ -212,3 +212,42 @@ def test_bare_arcount_is_a_dashboard(tmp_path, capsys):
     assert cli.main(["--db", str(db), "--sock", str(tmp_path / "none")]) == 0
     out = capsys.readouterr().out
     assert "not running or not reachable" in out and "no alerts in the last 24 h" in out
+
+
+def test_budget_warns_once_per_day_and_respects_metered(tmp_path):
+    cfg = Usage(enabled=True, sample_seconds=5, warn_mb=10, metered_warn_mb=2)
+    svc, st, pid, clock, counters, _ = service(tmp_path, cfg)
+    warned, metered = [], [False]
+    svc.on_budget = lambda *a: warned.append(a)
+    svc.is_metered = lambda p: metered[0]
+    svc.tick()
+    clock.advance(6)
+    counters["wlan0"] = (3_000_000, 0)
+    svc.tick(); svc.flush()
+    assert warned == []                                   # 3 MB < 10 MB on an unmetered network
+    metered[0] = True
+    clock.advance(6)
+    counters["wlan0"] = (3_100_000, 0)
+    svc.tick(); svc.flush()
+    assert len(warned) == 1 and warned[0][0] == pid       # but over 2 MB on a metered one
+    clock.advance(6)
+    counters["wlan0"] = (9_000_000, 0)
+    svc.tick(); svc.flush()
+    assert len(warned) == 1                               # once per day
+
+
+def test_metered_parser_and_config_validation():
+    from arcount import netinfo
+    from arcount.config import ConfigError, load
+    assert netinfo.parse_metered("yes\n") and netinfo.parse_metered("guess-yes")
+    assert not netinfo.parse_metered("no") and not netinfo.parse_metered(None)
+    assert netinfo.nm_metered("u1", run=lambda cmd: "yes\n")
+    import tempfile, pathlib
+    with tempfile.TemporaryDirectory() as d:
+        f = pathlib.Path(d) / "c.toml"
+        f.write_text("[usage]\nwarn_mb = -1\n")
+        try:
+            load(f)
+            assert False
+        except ConfigError:
+            pass

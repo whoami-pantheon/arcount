@@ -82,7 +82,8 @@ class Daemon:
         self.usage = UsageService(
             self.store, self.clock,
             lambda: {i: s.usage_profile() for i, s in self.manager.sessions.items()},
-            self.sel, lambda: self.cfg.usage)
+            self.sel, lambda: self.cfg.usage, on_budget=self._on_budget,
+            is_metered=self._is_metered)
         self.netwatch = NetWatch(self.clock)
         self._nw_fd = None
         self.control = ControlServer(self.sel, str(run_dir / "arcount.sock"), self,
@@ -132,6 +133,25 @@ class Daemon:
     def resume(self) -> None:
         self.paused_until = 0.0
         log.warning("resumed")
+
+    # ---- usage budget ------------------------------------------------------------
+    def _is_metered(self, pid) -> bool:
+        if not self.ctx.use_nm:
+            return False
+        for s in self.manager.sessions.values():
+            if s.profile_id == pid and s.sig is not None:
+                return netinfo.nm_metered(s.sig.nm_uuid)
+        return False
+
+    def _on_budget(self, pid, day, used, limit) -> None:
+        prof = self.store.get_profile(pid)
+        name = prof["name"] if prof else "this network"
+        self.dispatcher.emit(Alert(
+            ts=self.clock.wall(), rules=["USAGE"], severity=Severity.INFO, iface="",
+            title=f"Data warning: {name}",
+            message=f"This laptop has used {used / 1e6:.0f} MB on {name} today "
+                    f"(warning at {limit:g} MB).",
+            profile_id=pid, profile_name=name, key_macs=[f"usage-{day}"], desktop=True))
 
     # ---- selector plumbing ----------------------------------------------------------
     def _register(self, session) -> None:

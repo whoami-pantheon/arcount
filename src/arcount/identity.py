@@ -62,8 +62,8 @@ def resolve(store: Store, s: NetworkSignals, now: float) -> Resolution:
             res.new_ap_vendor = bool(known_prefixes) and s.bssid[:8] not in known_prefixes
 
     for key, val in (("dhcp_server_id", s.dhcp_server_id), ("domain_name", s.domain_name)):
-        if val:
-            store.add_signal(pid, key, val, now)
+        if val and not (key == "dhcp_server_id" and res.new_dhcp):
+            store.add_signal(pid, key, val, now)       # a NEW DHCP server stays unaccepted (R12)
     return res
 
 

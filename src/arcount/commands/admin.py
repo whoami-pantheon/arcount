@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import ipaddress
 import json
 import os
 import socket
@@ -34,9 +35,21 @@ def cmd_name(args) -> int:
     return 0
 
 
+def _is_ipv4(v: str) -> bool:
+    try:
+        return isinstance(ipaddress.ip_address(v), ipaddress.IPv4Address)
+    except ValueError:
+        return False
+
+
 def cmd_trust(args) -> int:
     st = open_store(args, True)
     p = need_profile(st, args.profile)
+    if _is_ipv4(args.mac):                     # a DHCP server address: accept it (rule R12)
+        st.add_signal(p["id"], "dhcp_server_id", args.mac, time.time())
+        print(f"DHCP server {args.mac} is now accepted for {p['name']}")
+        refresh_daemon(args)
+        return 0
     mac = short_mac(args.mac)
     st.set_gateway_mac(p["id"], mac, "user_trusted", "user", time.time())
     st.set_profile_trust(p["id"], "trusted")

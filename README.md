@@ -128,7 +128,7 @@ everything is in the journal (`journalctl -u arcountd`) and `arcount events`.
 | R08 | A flood of unsolicited ARP replies |
 | R09 | A known host's MAC changed |
 | R10 / R11 | New device / new network (informational) |
-| R12 | A known network was served by a DHCP server it has never used (possible rogue DHCP) |
+| R12 | A known network was served by a DHCP server it has never used (possible rogue DHCP). It keeps alerting on every join until you click **Accept this DHCP server** in the popup (admin password) or run `sudo arcount trust "<network>" <server-ip>` |
 | R13 | Same network name, but the access point's vendor matches none you used there before (possible evil twin) |
 | R14 | An IPv6 router advertised itself that this network never had (possible rogue router advertisement) |
 | R15 | A new device you have not named joined a network where you named devices |
@@ -323,6 +323,13 @@ a network's usage along with the rest of its history.
   history alone. Look at "SITE: new" and unfamiliar gateway vendors.
 - **Detection, not a shield.** Use a VPN and HTTPS; Arcount tells you the local network is being
   tampered with.
+- **Not yet verified on real hardware (v0.4.0).** These parts are unit-tested with fakes but were
+  not exercised end to end:
+  - the polkit password prompt behind the popup "Trust" / "Update now" buttons (the rootless lab
+    cannot show one; try it once on a real desktop, see `docs/DESIGN.md` §15);
+  - remote alerts to a real ntfy server or SMTP host (tested against fakes only);
+  - installing the `.deb` (it was built and inspected, not installed).
+  Please report anything that misbehaves.
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's planned.
 
 ## Development

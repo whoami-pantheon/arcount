@@ -339,7 +339,9 @@ class Session:
             out.append(Finding(
                 "R12", Severity.MEDIUM, "DHCP server changed",
                 f"{self.profile_name} was served by {', '.join(r.old_dhcp)} before; this time "
-                f"{r.new_dhcp} answered. A second DHCP server can hand out a rogue gateway or DNS.",
+                f"{r.new_dhcp} answered. A second DHCP server can hand out a rogue gateway or DNS. "
+                f"If this is expected (new router), accept it: sudo arcount trust "
+                f"\"{self.profile_name}\" {r.new_dhcp}",
                 details={"expected": list(r.old_dhcp), "seen": r.new_dhcp}))
         if r.new_ap_vendor:
             out.append(Finding(

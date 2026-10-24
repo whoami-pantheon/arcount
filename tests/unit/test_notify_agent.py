@@ -322,3 +322,13 @@ def test_polkit_policy_is_valid_and_bound_to_the_launcher(tmp_path):
     assert action.find("defaults/allow_any").text == "no"
     path = action.find("annotate").text
     assert path == na.ARCOUNT_BIN == f"{setup_cmd.PREFIX}/bin/arcount"
+
+
+def test_dhcp_accept_button_only_for_fresh_live_r12():
+    import time
+    a = {"rules": ["R12"], "profile_id": 3, "ts": time.time(), "details": {"seen": "10.20.30.9"}}
+    assert na.can_offer_dhcp_accept(a)
+    assert not na.can_offer_dhcp_accept({**a, "replayed": True})
+    assert not na.can_offer_dhcp_accept({**a, "rules": ["R12", "R01"]})
+    assert not na.can_offer_dhcp_accept({**a, "details": {"seen": "10.0.0.1; rm -rf /"}})
+    assert not na.can_offer_dhcp_accept({**a, "ts": time.time() - 99999})

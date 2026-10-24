@@ -57,6 +57,7 @@ def can_offer_disconnect(alert: dict, now: float | None = None) -> bool:
 
 
 MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+IPV4_RE = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")
 TAG_RE = re.compile(r"^v\d{1,4}\.\d{1,4}\.\d{1,4}$")
 ARCOUNT_BIN = "/opt/arcount/bin/arcount"      # the path the polkit action is bound to (see setup_cmd)
 
@@ -72,6 +73,17 @@ def can_offer_trust(alert: dict, now: float | None = None) -> bool:
     if len(macs) != 1 or not MAC_RE.match(str(macs[0])):
         return False
     if not isinstance(alert.get("profile_id"), int) or not alert.get("title") == "Gateway MAC changed":
+        return False
+    age = (now if now is not None else time.time()) - float(alert.get("ts", 0) or 0)
+    return age <= OFFER_MAX_AGE
+
+
+def can_offer_dhcp_accept(alert: dict, now: float | None = None) -> bool:
+    """An 'Accept this DHCP server' button for a fresh, live R12 alert with one plain IPv4 server."""
+    if alert.get("replayed") or alert.get("rules") != ["R12"]:
+        return False
+    seen = (alert.get("details") or {}).get("seen")
+    if not isinstance(seen, str) or not IPV4_RE.match(seen) or not isinstance(alert.get("profile_id"), int):
         return False
     age = (now if now is not None else time.time()) - float(alert.get("ts", 0) or 0)
     return age <= OFFER_MAX_AGE
@@ -130,6 +142,10 @@ def show(alert: dict, runner=subprocess.run, threaded: bool = True) -> bool:
     if can_offer_trust(alert):
         argv = pkexec_command("trust", str(alert["profile_id"]), alert["macs"][0])
         return _spawn(offer_action, (alert, "trust", "Trust this gateway", argv, runner),
+                      threaded)
+    if can_offer_dhcp_accept(alert):
+        argv = pkexec_command("trust", str(alert["profile_id"]), alert["details"]["seen"])
+        return _spawn(offer_action, (alert, "dhcp", "Accept this DHCP server", argv, runner),
                       threaded)
     if alert.get("offer_update") and TAG_RE.match(str(alert.get("update_tag", ""))):
         argv = pkexec_command("update", "--yes", "--tag", alert["update_tag"])

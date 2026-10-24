@@ -62,11 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p = add("show", cmd_show, "show one event")
     p.add_argument("event_id", help="event id or any unique prefix of it (see `arcount events`)")
-    for name, fn, h in (("trust", cmd_trust, "trust a gateway MAC (sudo)"),
+    for name, fn, h in (("trust", cmd_trust, "trust a gateway MAC, or accept a DHCP server IP (sudo)"),
                         ("reject", cmd_reject, "reject a gateway MAC (sudo)")):
         p = add(name, fn, h)
         p.add_argument("profile", help="network name or id (see `arcount networks`)")
-        p.add_argument("mac", help="gateway MAC address, e.g. aa:bb:cc:dd:ee:ff")
+        p.add_argument("mac", help="gateway MAC (aa:bb:cc:dd:ee:ff); for `trust` also a DHCP server IP")
     p = add("rename", cmd_rename, "rename a network (sudo)")
     p.add_argument("profile", help="network name or id")
     p.add_argument("name", help="new display name")

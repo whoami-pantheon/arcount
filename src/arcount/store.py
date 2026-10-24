@@ -108,6 +108,37 @@ class Store(UsageMixin, NamesMixin, FactsMixin):
             self.db.executescript("BEGIN;" + _MIGRATIONS[v])
             self.db.execute("INSERT OR REPLACE INTO meta VALUES('schema_version', ?)", (str(v),))
             self.db.commit()
+        self._repair_ssid_escapes()
+
+    def _repair_ssid_escapes(self) -> None:
+        """Before 0.5.1 Wi-Fi names with non-ASCII characters were stored as iw's `\\xNN` text, so the
+        same network later got a second profile under its real name. Decode the stored names and
+        merge such twins (same network by definition: same name, subnet and gateway). Idempotent."""
+        from .netinfo import unescape_iw
+        rows = self.db.execute("SELECT id,name,primary_key,subnet,gateway_ip FROM profiles "
+                               "WHERE kind='wifi' AND instr(primary_key, char(92))>0").fetchall()
+        for r in rows:
+            fixed = unescape_iw(r["primary_key"])
+            if fixed == r["primary_key"]:
+                continue
+            name = r["name"].replace(r["primary_key"], fixed)
+            twin = self.db.execute(
+                "SELECT id FROM profiles WHERE kind='wifi' AND primary_key=? AND subnet=? "
+                "AND gateway_ip=? AND id<>?", (fixed, r["subnet"], r["gateway_ip"], r["id"])).fetchone()
+            if twin:
+                keep, drop = sorted((r["id"], twin["id"]))
+                for t in ("profile_bssids", "profile_signals", "gateway_macs", "hosts", "usage",
+                          "usage_peers"):
+                    self.db.execute(f"UPDATE OR IGNORE {t} SET profile_id=? WHERE profile_id=?",
+                                    (keep, drop))
+                self.db.execute("UPDATE events SET profile_id=? WHERE profile_id=?", (keep, drop))
+                self.db.execute("DELETE FROM profiles WHERE id=?", (drop,))
+                self.db.execute("UPDATE profiles SET primary_key=?, name=? WHERE id=?",
+                                (fixed, name, keep))
+            else:
+                self.db.execute("UPDATE profiles SET primary_key=?, name=? WHERE id=?",
+                                (fixed, name, r["id"]))
+        self.db.commit()
 
     def close(self) -> None:
         try:

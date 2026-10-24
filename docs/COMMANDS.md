@@ -147,6 +147,7 @@ Mark a MAC hostile for a network: it will always raise a critical alert.
 Name a device. `arcount name` alone lists the names (no sudo). `sudo arcount name aa:bb:cc:dd:ee:ff "Anna's phone"` sets one, `--remove` clears it. Names show in `arcount hosts` and `arcount report`. Names are global (one MAC, one name). Once a network contains at least one device you named, any **new** unnamed device joining it raises rule R15 (see below); a network with none of your devices is never watched this way.
 
 ### `sudo arcount rename <network> <new name>`
+Change the label shown for a network. It does **not** change how the network is recognised (that is its Wi-Fi name, subnet and gateway), and it refuses a name another network already has. Releases before 0.5.3 stored non-ASCII Wi-Fi names as `\xNN` text; opening the database now repairs such networks and merges the duplicate profile that this created.
 ### `sudo arcount forget <network>`
 Delete a network and all its hosts and events. The next visit is treated as a new network.
 ### `sudo arcount import-arpwatch <file> --profile <network>`

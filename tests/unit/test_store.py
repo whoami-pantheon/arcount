@@ -142,3 +142,25 @@ def test_host_visits_and_days(tmp_path):
     h = s.hosts(pid)[0]
     assert (h["seen_count"], h["visits"], h["days"]) == (5, 2, 2)
     s.close()
+
+
+def test_escaped_ssid_profiles_are_repaired_and_merged(tmp_path):
+    db = tmp_path / "t.db"
+    s = Store(db)
+    old = s.create_profile("wifi", "Home\\xe2\\x80\\x99s Net 10.20.30.0/24", "Home\\xe2\\x80\\x99s Net",
+                           "10.20.30.0/24", "10.20.30.1", 1.0)
+    new = s.create_profile("wifi", "Home’s Net 10.20.30.0/24", "Home’s Net",
+                           "10.20.30.0/24", "10.20.30.1", 2.0)
+    s.set_gateway_mac(old, "02:aa:bb:cc:00:01", "user_trusted", "user", 1.0)
+    s.set_profile_trust(old, "trusted")
+    s.close()
+    s = Store(db)                                   # opening repairs
+    ps = s.list_profiles()
+    assert [(p["id"], p["name"], p["primary_key"]) for p in ps] == \
+        [(old, "Home’s Net 10.20.30.0/24", "Home’s Net")]
+    assert s.get_profile(old)["trust_state"] == "trusted" and new != old
+    assert s.find_profiles("wifi", "Home’s Net", "10.20.30.0/24", "10.20.30.1")
+    s.close()
+    s = Store(db)                                   # idempotent
+    assert len(s.list_profiles()) == 1
+    s.close()

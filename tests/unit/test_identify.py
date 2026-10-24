@@ -270,3 +270,10 @@ def test_packs_hint(tmp_path, monkeypatch):
     monkeypatch.delenv("ARCOUNT_NO_HINTS")
     (tmp_path / "manifest.json").write_text('{"leetha": {"files": {}}}')
     assert packs.hint(tmp_path) == ""
+
+
+def test_one_router_clue_does_not_outvote_several_phone_clues(tmp_path):
+    from arcount.fingerprint import Engine
+    g = Engine(tmp_path).classify({"ssdp_type": ["InternetGatewayDevice"],
+                                   "dhcp60": ["android-dhcp-14"], "hostname": ["Galaxy-S23"]}, "", "")
+    assert g.label.startswith("phone") and g.confidence >= 60

@@ -148,7 +148,7 @@ _B_MODEL = [(_rx(p), c, d, n) for p, c, d, n in (
     (r"laserjet|officejet|deskjet|ecotank|workforce|pixma|mfc-|hl-", "printer", "", 80),
 )]
 _B_SSDP_TYPE = {
-    "internetgatewaydevice": ("router", "", 90), "wandevice": ("router", "", 85),
+    "internetgatewaydevice": ("router", "", 60), "wandevice": ("router", "", 60),
     "mediarenderer": ("media player", "UPnP renderer", 55), "mediaserver": ("media server", "", 50),
     "printer": ("printer", "", 80), "zoneplayer": ("smart speaker", "Sonos", 90),
 }
@@ -303,9 +303,12 @@ class Engine:
             return Guess("gateway / router", 99, ["this is the network's gateway"])
         cands = self.candidates(facts or {})
         if cands:
-            best = max(cands, key=lambda c: c.conf)
-            agree = {c.source for c in cands if c.category == best.category and c.source != best.source}
-            conf = min(99, best.conf + 5 * len(agree))
+            def score(cat):             # strongest clue of a category + 5 per other agreeing source
+                mine = [c for c in cands if c.category == cat]
+                return min(99, max(c.conf for c in mine) + 5 * (len({c.source for c in mine}) - 1))
+            top = max({c.category for c in cands}, key=score)
+            best = max((c for c in cands if c.category == top), key=lambda c: c.conf)
+            conf = score(top)
             why = [f"{c.source}: {c.category}" + (f" ({c.detail})" if c.detail else "")
                    for c in sorted(cands, key=lambda c: -c.conf)[:4]]
             if conf >= 40:

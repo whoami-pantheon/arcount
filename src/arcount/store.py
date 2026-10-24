@@ -5,6 +5,9 @@ import json
 import sqlite3
 from pathlib import Path
 
+from .store_names import SCHEMA_V3, NamesMixin
+from .store_usage import SCHEMA_V2, UsageMixin
+
 SCHEMA_VERSION = 3
 
 _SCHEMA_V1 = """
@@ -40,27 +43,12 @@ CREATE TABLE pins(
   iface TEXT, ip TEXT, mac TEXT, created REAL, run_id TEXT, PRIMARY KEY(iface, ip));
 """
 
-_SCHEMA_V2 = """
-CREATE TABLE usage(
-  profile_id INTEGER REFERENCES profiles ON DELETE CASCADE,
-  day TEXT NOT NULL, rx INTEGER NOT NULL DEFAULT 0, tx INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY(profile_id, day));
-CREATE TABLE usage_peers(
-  profile_id INTEGER REFERENCES profiles ON DELETE CASCADE,
-  day TEXT NOT NULL, ip TEXT NOT NULL, rx INTEGER NOT NULL DEFAULT 0, tx INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY(profile_id, day, ip));
-"""
-
-_SCHEMA_V3 = """
-CREATE TABLE device_names(mac TEXT PRIMARY KEY, name TEXT NOT NULL, created REAL);
-"""
-
-_MIGRATIONS = {1: _SCHEMA_V1, 2: _SCHEMA_V2, 3: _SCHEMA_V3}
+_MIGRATIONS = {1: _SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3}
 GW_STATES = ("provisional", "trusted", "user_trusted", "rejected")
 KNOWN_GW_STATES = ("provisional", "trusted", "user_trusted")
 
 
-class Store:
+class Store(UsageMixin, NamesMixin):
     def __init__(self, path: Path | str, readonly: bool = False):
         self.path = str(path)
         if readonly:
@@ -302,44 +290,7 @@ class Store:
     def pins(self) -> list[sqlite3.Row]:
         return self.db.execute("SELECT * FROM pins").fetchall()
 
-    # ---- traffic usage -----------------------------------------------------
-    def add_usage(self, pid, day, rx, tx) -> None:
-        """Add bytes to a network's total for one local calendar day (YYYY-MM-DD)."""
-        self.db.execute(
-            "INSERT INTO usage VALUES(?,?,?,?) ON CONFLICT(profile_id,day) "
-            "DO UPDATE SET rx=rx+excluded.rx, tx=tx+excluded.tx", (pid, day, rx, tx))
-        self.db.commit()
-
-    def add_usage_peers(self, rows) -> None:
-        """rows: iterable of (profile_id, day, ip, rx, tx), added to what is stored."""
-        self.db.executemany(
-            "INSERT INTO usage_peers VALUES(?,?,?,?,?) ON CONFLICT(profile_id,day,ip) "
-            "DO UPDATE SET rx=rx+excluded.rx, tx=tx+excluded.tx", list(rows))
-        self.db.commit()
-
-    def usage(self, pid, since_day) -> list[sqlite3.Row]:
-        return self.db.execute("SELECT day, rx, tx FROM usage WHERE profile_id=? AND day>=? "
-                               "ORDER BY day DESC", (pid, since_day)).fetchall()
-
-    def usage_peers(self, pid, since_day, limit=10) -> list[sqlite3.Row]:
-        return self.db.execute(
-            "SELECT ip, SUM(rx) rx, SUM(tx) tx FROM usage_peers WHERE profile_id=? AND day>=? "
-            "GROUP BY ip ORDER BY SUM(rx)+SUM(tx) DESC LIMIT ?", (pid, since_day, limit)).fetchall()
-
-    # ---- device names -----------------------------------------------------
-    def set_device_name(self, mac, name, now) -> None:
-        self.db.execute("INSERT INTO device_names VALUES(?,?,?) "
-                        "ON CONFLICT(mac) DO UPDATE SET name=excluded.name", (mac, name, now))
-        self.db.commit()
-
-    def del_device_name(self, mac) -> bool:
-        n = self.db.execute("DELETE FROM device_names WHERE mac=?", (mac,)).rowcount
-        self.db.commit()
-        return n > 0
-
-    def device_names(self) -> dict[str, str]:
-        return {r["mac"]: r["name"] for r in self.db.execute("SELECT mac,name FROM device_names")}
-
+    # ---- hosts seen for the first time -----------------------------------
     def new_hosts(self, pid, since) -> list[sqlite3.Row]:
         self.flush_hosts()
         return self.db.execute("SELECT ip, mac, first_seen FROM hosts WHERE profile_id=? AND "

@@ -74,6 +74,8 @@ Arcount/
     netinfo.py                # gather NetworkSignals for an iface (nmcli, iw, ip -j route)
     identity.py               # match signals → profile; site logic; create profile
     store.py                  # schema, migrations, DAO; WAL; batched host updates
+    store_usage.py            # traffic-usage tables (mixin)
+    store_names.py            # device names (mixin)
     detector.py               # rule engine → Finding objects (pure, no I/O)
     verify.py                 # ProbeTracker: send N requests, collect responders until deadline
     session.py                # per-interface state machine; wires capture/detector/verify/response
@@ -88,7 +90,12 @@ Arcount/
     control.py                # Unix socket server: subscribe, status, refresh, test-alert
     sdnotify.py               # READY=1 / WATCHDOG=1 / STATUS= via $NOTIFY_SOCKET
     daemon.py                 # main(): config, store, selectors loop, signals, timers
-    cli.py                    # `arcount …` subcommands (§8)
+    cli.py                    # argument parser + main (§8); wires up commands/
+    commands/                 # one module per family: inspect, usage, admin, maintain, common helpers
+    bpf.py                    # kernel packet filters for AF_PACKET sockets (ARP, IPv4, IPv6 RA)
+    ra.py                     # IPv6 router-advertisement parser (R14)
+    usage.py                  # traffic usage meter (opt-in)
+    alerts/remote.py          # queue + retry + secrets for the ntfy and email sinks
     notify_agent.py           # `arcount-notify` user-session agent
   packaging/
     bin/arcountd              # launcher scripts: sys.path.insert(0, "/opt/arcount/lib"); run module

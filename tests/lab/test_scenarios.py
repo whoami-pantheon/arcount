@@ -186,3 +186,19 @@ def test_16_capture_sees_the_kernels_outgoing_requests(make_lab):
     ) % str(ROOT / "src")
     out = sh(sys.executable, "-c", code, ns="victim").split()
     assert out == ["True", "10.99.0.77"], out
+
+
+RA_FORGE = """
+from scapy.all import Ether, IPv6, ICMPv6ND_RA, sendp
+sendp(Ether(src="%s", dst="33:33:00:00:00:01") / IPv6(src="fe80::de:adff:febe:ef66", dst="ff02::1")
+      / ICMPv6ND_RA(routerlifetime=1800), iface="lan0", count=2, inter=0.2, verbose=0)
+""" % EVIL_MAC
+
+
+def test_17_rogue_router_advertisement_after_learning(make_lab):
+    lab = make_lab()
+    monitoring(lab)
+    time.sleep(1)
+    sh(sys.executable, "-c", RA_FORGE, ns="attacker", timeout=60)
+    e = lab.wait_event(lambda e: "R14" in e["rules"], 15, what="R14")
+    assert EVIL_MAC in e["macs"] and e["severity"] == 2, e

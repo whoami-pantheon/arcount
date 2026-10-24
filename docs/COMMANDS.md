@@ -277,6 +277,8 @@ Arcount can say what kind of device each host probably is, using only what the d
 
 **How the guess is made** (in the unprivileged `arcount` command, not in the root daemon, because rules from a downloaded pack must not run as root against strings an attacker chose): every source that matches proposes a type with a confidence; the best wins and each independent source that agrees adds 5 points. 60 and above is shown plainly, 40 to 59 with a `?`, below 40 it falls back to the maker-name guess. The built-in rules are small and written for Arcount. The data packs add thousands more patterns.
 
+**Refreshing.** `arcount update` never touches the packs and they never update themselves; run `sudo arcount packs fetch` again for newer data (no restart needed).
+
 **The reminder.** While no pack is installed, `arcount hosts` and `arcount mac` end with one line on stderr suggesting `sudo arcount packs fetch`, `arcount doctor` shows a quiet `--` line, and `arcount setup` lists it as an optional step. The line is only printed on a terminal (never in pipes or scripts), disappears once any pack is installed, and `ARCOUNT_NO_HINTS=1` hides it for good. Nothing is ever downloaded without your yes.
 
 **Optional data packs** (`sudo arcount packs fetch`). These are third-party files under other licences, so Arcount (Apache-2.0) does **not** include them: you choose to download them to your own machine and Arcount only reads them as data, never imports or runs them.

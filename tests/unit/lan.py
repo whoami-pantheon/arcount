@@ -90,7 +90,7 @@ class Lan:
         self.cap = None
         self.t0 = self.clock.monotonic()
         self.responder = Responder(self.store, self.clock, "run1", self._run)
-        self.ctx = Context(self.cfg, self.store, self.dispatcher, self.clock, Oui("/nonexistent"),
+        self.ctx = Context(self.cfg, self.store, self.dispatcher, self.clock, Oui("/nonexistent", manuf=None),
                            self.gather, self.make_cap, lambda i, ip: self.kernel_neigh.get(ip),
                            self.responder, lambda: self.paused, True)
 

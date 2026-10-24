@@ -339,7 +339,7 @@ def test_alert_message_names_vendor_of_macs(tmp_path):
         "Registry,Assignment,Organization Name,Organization Address\nMA-L,00DEAD,EvilCorp,x\n")
     from arcount.oui import Oui
     lan, s = trusted_lan(tmp_path)
-    lan.ctx.oui = Oui(tmp_path / "oui.csv")
+    lan.ctx.oui = Oui(tmp_path / "oui.csv", manuf=None)
     attack(lan, s)
     msg = lan.alerts[-1].message
     assert f"{EVIL} (EvilCorp)" in msg

@@ -307,7 +307,7 @@ arcount packs                     # what is available and what is installed
 sudo arcount packs fetch          # shows each pack's licence and URL, asks, then downloads
 sudo arcount packs remove         # delete them again
 ```
-The packs are [Leetha](https://github.com/tjnull/leetha) (GPL-3.0) and [Satori](https://github.com/xnih/satori) (GPL-2.0) fingerprint data, and the [Wireshark](https://www.wireshark.org/) manufacturer list (GPL-2.0-or-later; a modest addition to the IEEE vendor names). Arcount only reads them as data. Fingerbank is not used (its database is a commercial product; see `docs/COMMANDS.md`). Everything above is described in `docs/COMMANDS.md` ("Device identification"), and its security review is in `docs/DESIGN.md` §16.
+The packs are [Leetha](https://github.com/tjnull/leetha) (GPL-3.0) and [Satori](https://github.com/xnih/satori) (GPL-2.0) fingerprint data, and the [Wireshark](https://www.wireshark.org/) manufacturer list (GPL-2.0-or-later; a modest addition to the IEEE vendor names). Arcount only reads them as data. Fingerbank is not used (its database is a commercial product; see `docs/COMMANDS.md`). Everything above is described in `docs/COMMANDS.md` ("Device identification"), and its security review is in `docs/DESIGN.md` §16. **Packs are not part of `arcount update`**: updating Arcount leaves them untouched, and they never refresh themselves. To get newer data, run `sudo arcount packs fetch` again whenever you like (the Wireshark list is limited to once a week unless you add `--force`). Nothing needs restarting.
 
 ## Traffic usage (optional)
 Arcount can show how much data **this laptop** uses on each network and how fast it is going right

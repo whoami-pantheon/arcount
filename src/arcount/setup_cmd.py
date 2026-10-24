@@ -224,7 +224,8 @@ Done. Next steps:
      no log-out needed. For popups right now run `arcount-notify &` (otherwise they start at login).
   2. arcount status        should list your interface; the first minutes on a network are 'learning'
   3. arcount test-alert    a desktop popup should appear
-  4. Edit /etc/arcount/arcount.toml (pinning / disconnect are off by default), then
+  4. Optional: sudo arcount packs fetch   downloads extra data that sharpens device types
+  5. Edit /etc/arcount/arcount.toml (pinning / disconnect are off by default), then
      sudo systemctl restart arcountd
 Check any time with: arcount setup --check""")
     return 0

@@ -213,6 +213,15 @@ def run(args) -> int:
         cfg = config.Config()
         out.fail(f"{cfg_path}: {e}")
 
+    if cfg.identify.enabled:
+        from . import packs as packs_mod
+        have = [e["name"] for e in packs_mod.status(packs_mod.packs_dir(args.db)) if e["installed"]]
+        if have:
+            out.ok("device-identification data packs: " + ", ".join(have))
+        else:
+            out.note("device-identification data packs: none (optional; `sudo arcount packs fetch` "
+                     "sharpens device types)")
+
     section("Running daemon")
     from .cli import ctl, CliError
     status = None

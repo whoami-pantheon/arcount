@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -92,6 +93,13 @@ def cmd_networks(args) -> int:
     return 0
 
 
+def _tip(args) -> None:
+    from ..packs import hint
+    tip = hint(packs_dir(args.db))
+    if tip:
+        print(tip, file=sys.stderr)
+
+
 def cmd_hosts(args) -> int:
     st = open_store(args, False)
     if args.profile:
@@ -132,6 +140,7 @@ def cmd_hosts(args) -> int:
         print(table(rows, ["IP", "MAC", "NAME", "HOSTNAME", "VENDOR", "LIKELY TYPE", "FIRST SEEN",
                            "LAST SEEN", "COUNT", "VISITS", "DAYS"])
               if rows else "no hosts")
+    _tip(args)
     return 0
 
 
@@ -223,6 +232,7 @@ def cmd_mac(args) -> int:
             print("  seen on:")
             print("    " + table(rows, ["NETWORK", "IP", "FIRST SEEN", "LAST SEEN", "COUNT"])
                   .replace("\n", "\n    "))
+    _tip(args)
     return 0
 
 

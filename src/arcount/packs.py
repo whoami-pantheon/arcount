@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -72,6 +73,17 @@ def status(root: Path) -> list[dict]:
                     "installed": bool(e), "fetched": e.get("fetched") if e else None,
                     "files": sorted(e.get("files", {})) if e else []})
     return out
+
+
+HINT = ("tip: sharper device types are available: sudo arcount packs fetch "
+        "(optional, asks first; hide this tip with ARCOUNT_NO_HINTS=1)")
+
+
+def hint(root: Path, enabled: bool = True) -> str:
+    """One quiet line suggesting `packs fetch`, or "" (packs installed, tip hidden, not a terminal)."""
+    if not enabled or os.environ.get("ARCOUNT_NO_HINTS") or not sys.stderr.isatty():
+        return ""
+    return "" if manifest(root) else HINT
 
 
 class PackError(Exception):

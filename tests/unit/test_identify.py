@@ -258,3 +258,15 @@ def test_oui_uses_wireshark_list_only_for_missing_prefixes(tmp_path):
     assert oui.vendor("00:00:00:11:22:33") == "Xerox Corporation"
     assert oui.vendor("70:b3:d5:12:3a:bc") == "Acme Devices Ltd"
     assert oui.vendor("70:b3:d5:99:99:99") == ""
+
+
+def test_packs_hint(tmp_path, monkeypatch):
+    from arcount import packs
+    monkeypatch.delenv("ARCOUNT_NO_HINTS", raising=False)
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True, raising=False)
+    assert "packs fetch" in packs.hint(tmp_path)
+    monkeypatch.setenv("ARCOUNT_NO_HINTS", "1")
+    assert packs.hint(tmp_path) == ""
+    monkeypatch.delenv("ARCOUNT_NO_HINTS")
+    (tmp_path / "manifest.json").write_text('{"leetha": {"files": {}}}')
+    assert packs.hint(tmp_path) == ""

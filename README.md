@@ -34,13 +34,17 @@ arcount test-alert                 # a desktop popup should appear (start the po
                                    #   `arcount-notify &`, or it starts at your next login)
 arcount status                     # what it is watching right now
 ```
+Optional, any time: `sudo arcount packs fetch` downloads third-party fingerprint data that makes the
+"likely type" column in `arcount hosts` sharper (it shows the licences and asks first; see
+[Device identification](#device-identification-automatic-and-optional-data-packs)).
+
 That is all. It starts automatically at every boot. The first time you join a network it spends two
 minutes *learning* it, after which it is fully armed.
 
 ### Other ways to install
 **A signed release** (no git needed). Check the signature before you run anything from it:
 ```sh
-V=0.4.2
+V=0.5.0
 curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz
 curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz.sig
 tar xzf arcount-$V.tar.gz
@@ -336,7 +340,7 @@ a network's usage along with the rest of its history.
   history alone. Look at "SITE: new" and unfamiliar gateway vendors.
 - **Detection, not a shield.** Use a VPN and HTTPS; Arcount tells you the local network is being
   tampered with.
-- **Not yet verified on real hardware (v0.4.2).** These parts are unit-tested with fakes but were
+- **Not yet verified on real hardware (v0.5.0).** These parts are unit-tested with fakes but were
   not exercised end to end:
   - the polkit password prompt behind the popup "Trust" / "Update now" buttons (the rootless lab
     cannot show one; try it once on a real desktop, see `docs/DESIGN.md` §15);

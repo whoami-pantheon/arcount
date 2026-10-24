@@ -127,6 +127,57 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_dashboard(args) -> int:
+    """Bare `arcount`: one screen with everything worth a glance."""
+    print(f"Arcount {__version__}")
+    try:
+        r = ctl(args.sock, {"cmd": "status"})
+    except CliError as e:
+        r = None
+        print(f"\n!! the detector is not running or not reachable: {e}\n"
+              "   Run `arcount doctor` to find out why.")
+    if r and r.get("ok"):
+        if r.get("paused_until"):
+            print(f"PAUSED until {fmt_ts(r['paused_until'])}  (sudo arcount resume)")
+        rows = [[s["iface"], s["profile"] or "-", s["state"], s["gateway_ip"] or "-"]
+                for s in r["sessions"]]
+        print("\n" + (table(rows, ["IFACE", "NETWORK", "STATE", "GATEWAY"]) if rows
+                      else "no monitored interfaces (is a network connected?)"))
+        if not r.get("agents"):
+            print("\n!! no desktop notification agent is connected, so alerts will not pop up.\n"
+                  "   Log in to a desktop session, or run `arcount doctor`.")
+        use = r.get("usage") or {}
+        rates = use.get("rates", {})
+        if use.get("enabled") and rates:
+            print("\nspeed now: " + ", ".join(
+                f"{i} down {fmt_bits(v['rx_bps'])} / up {fmt_bits(v['tx_bps'])}"
+                for i, v in rates.items()))
+    try:
+        st = open_store(args, False)
+    except CliError:
+        print("\n(no history database to read yet)")
+        return 0
+    evs = [e for e in st.events(since=time.time() - 86400, min_severity=1, limit=200)]
+    if evs:
+        top = max(e["severity"] for e in evs)
+        print(f"\n{len(evs)} alert(s) in the last 24 h (worst: {Severity(top).name.lower()}):")
+        for e in evs[:5]:
+            print(f"  {fmt_ts(e['ts'])}  {Severity(e['severity']).name.lower():8} {e['title']}"
+                  f"  [{e['id'][:8]}]")
+        print("  details: arcount show <id>   all: arcount events")
+    else:
+        print("\nno alerts in the last 24 h")
+    if r and r.get("ok"):
+        today = time.strftime("%Y-%m-%d")
+        for s in r["sessions"]:
+            if s.get("profile_id"):
+                for u in st.usage(s["profile_id"], today):
+                    print(f"data today on {s['profile']}: {fmt_bytes(u['rx'])} down, "
+                          f"{fmt_bytes(u['tx'])} up")
+    print("\nmore: arcount --help   (status, events, hosts, usage, doctor, ...)")
+    return 0
+
+
 def cmd_networks(args) -> int:
     st = open_store(args, False)
     rows = []
@@ -496,7 +547,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--version", action="version", version=f"arcount {__version__}")
     ap.add_argument("--db", default=DEFAULT_DB)
     ap.add_argument("--sock", default=DEFAULT_SOCK)
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    ap.set_defaults(fn=cmd_dashboard)           # bare `arcount` = dashboard
+    sub = ap.add_subparsers(dest="cmd")
 
     def add(name, fn, help_):
         p = sub.add_parser(name, help=help_)

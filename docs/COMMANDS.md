@@ -20,6 +20,11 @@ Example: `arcount --db ./copy.db events --since 7d`
 
 ## Looking around (no sudo)
 
+### `arcount` (no command)
+A one-screen dashboard: whether the detector is running, the networks you are on, whether a desktop
+agent is connected to show popups, live speed (if usage tracking is on), the last alerts and today's
+data use. `arcount doctor` is the full health check.
+
 ### `arcount status`
 Live state from the running daemon: one row per watched interface (state, network, gateway, gateway
 MACs and their trust, pinned MAC, whether the network is `known` or `new`) plus daemon version,

@@ -202,3 +202,13 @@ def test_cli_usage_report(tmp_path, capsys):
     assert data[0]["days"][0]["rx"] == 3_000_000_000
     assert cli.main(["--db", str(db), "--sock", str(tmp_path / "none"), "usage"]) == 1
     assert "not connected" in capsys.readouterr().err
+
+
+def test_bare_arcount_is_a_dashboard(tmp_path, capsys):
+    db = tmp_path / "d.db"
+    st = Store(db)
+    st.create_profile("wifi", "HomeWifi", "k", "10.20.30.0/24", "10.20.30.1", 1.0)
+    st.close()
+    assert cli.main(["--db", str(db), "--sock", str(tmp_path / "none")]) == 0
+    out = capsys.readouterr().out
+    assert "not running or not reachable" in out and "no alerts in the last 24 h" in out

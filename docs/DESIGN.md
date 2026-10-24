@@ -93,6 +93,10 @@ Arcount/
     cli.py                    # argument parser + main (§8); wires up commands/
     commands/                 # one module per family: inspect, usage, admin, maintain, common helpers
     bpf.py                    # kernel packet filters for AF_PACKET sockets (ARP, IPv4, IPv6 RA)
+    identify.py               # passive parsers: DHCP/mDNS/SSDP announcements -> short facts (daemon side)
+    fingerprint.py            # classification engine: built-in rules + data packs (CLI side only)
+    packs.py                  # optional GPL-family data packs the user downloads (never bundled)
+    store_facts.py            # device_facts table (schema v5)
     devtype.py                # device-type guess from the vendor name (offline hint, "?" when ambiguous)
     ra.py                     # IPv6 router-advertisement parser (R14)
     usage.py                  # traffic usage meter (opt-in)
@@ -652,3 +656,21 @@ min_severity = "medium"
 | Policy file points at a writable path | the action is bound to `/opt/arcount/bin/arcount`, a root-owned launcher |
 
 **Residual risk / not verified here.** The policy file is validated as XML and its path is checked against the launcher, and the click handling is unit-tested with a fake runner, but the actual polkit prompt could not be exercised in the rootless lab (no polkit agent or system bus). Test it once by hand on a real desktop: trigger `arcount test-alert`, then try `pkexec /opt/arcount/bin/arcount trust` from a terminal. Installed only where `/usr/share/polkit-1` exists; removed by `arcount setup --uninstall`.
+
+
+## 16. Security review: passive device identification and data packs
+
+**What was added.** A second AF_PACKET socket per interface (kernel BPF: IPv4 UDP, no fragments, destination port 67/68/5353/1900) feeds `identify.py`, which records short strings devices announce (host name, DHCP option 55 and 60, mDNS services and model, SSDP server and device type) into `device_facts`. The unprivileged CLI classifies them with `fingerprint.py` using built-in rules and, if the user fetched them, data packs (`packs.py`).
+
+| Threat | Mitigation |
+|---|---|
+| Hostile packets crash or hang the root daemon | parsers run inside a catch-all for malformed input, bound every loop (64 DNS items, 10 compression hops, 255-byte names, 64 DHCP options), cap each string at 96 printable characters, never allocate from a length field, and are fuzzed with random and looping inputs in the unit tests; at most 200 frames are read per wake-up so a flood cannot starve ARP detection |
+| A flood of fake announcements fills the database | at most 24 values per (MAC, kind), 20 000 rows overall; unchanged facts are cached and written at most hourly; rows expire with `host_ttl_days` |
+| Pack patterns (regex) run as root against attacker-chosen strings (ReDoS) | patterns are never loaded by the daemon; the CLI runs each match under a 50 ms timer and inputs are at most 96 characters |
+| Malicious or corrupt downloaded data | HTTPS only with the default verifying context, 8 MB cap, JSON must parse, XML containing DOCTYPE/ENTITY is refused (no entity expansion), all-or-nothing atomic install, 0644 files in a root-owned directory; data is read, never executed or imported; a damaged pack is skipped silently by `hosts` |
+| Supply-chain trust in the upstream repositories | the user decides to fetch (licence and URLs shown first, `--yes` required without a terminal), and only the files named in `packs.py` are fetched; removal is one command |
+| Privacy of other people's devices (host names like "Anna's iPhone") | local only, never put in alerts or sent anywhere, expire with the host TTL, removed by `forget` for devices seen only there, switch `identify.enabled = false` |
+| Forged announcements to mislead the user | documented: the type is a hint; a spoofed name cannot change any detection rule |
+| Licence contamination | Apache-2.0 code ships no GPL data; packs are fetched to the user's machine and parsed as data; the legal notes are in `NOTICE` and `docs/COMMANDS.md`. This is engineering guidance, not legal advice |
+
+**Not verified here.** Real DHCP/mDNS/SSDP traffic from phones, TVs and printers on a real network, and the live pack downloads, were not exercised: the parsers and the downloader are unit-tested with synthetic packets and a fake opener. Please run `arcount packs fetch` and `arcount hosts` once on a real network and report anything wrong.

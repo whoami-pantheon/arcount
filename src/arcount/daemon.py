@@ -76,7 +76,8 @@ class Daemon:
         sinks, self.socket_sink = build_sinks(cfg)
         self.dispatcher = Dispatcher(self.store, sinks, self.clock, self.is_paused)
         self.ctx = Context(cfg, self.store, self.dispatcher, self.clock, Oui(),
-                           lambda iface: netinfo.gather(iface, use_nm=use_nm), Capture,
+                           lambda iface: netinfo.gather(iface, use_nm=use_nm),
+                           lambda iface: Capture(iface, identify=cfg.identify.enabled),
                            fresh_neigh, self.responder, self.is_paused, use_nm)
         self.manager = SessionManager(self.ctx, self._register, self._unregister)
         self.usage = UsageService(
@@ -159,16 +160,20 @@ class Daemon:
         ra_sock = getattr(session.cap, "ra_sock", None)
         if ra_sock is not None:
             self.sel.register(ra_sock, selectors.EVENT_READ, ("session-ra", session))
+        ident_sock = getattr(session.cap, "ident_sock", None)
+        if ident_sock is not None:
+            self.sel.register(ident_sock, selectors.EVENT_READ, ("session-ident", session))
 
     def _unregister(self, session) -> None:
         try:
             self.sel.unregister(session.cap.sock)
         except (KeyError, ValueError, AttributeError):
             pass
-        try:
-            self.sel.unregister(session.cap.ra_sock)
-        except (KeyError, ValueError, AttributeError):
-            pass
+        for name in ("ra_sock", "ident_sock"):
+            try:
+                self.sel.unregister(getattr(session.cap, name))
+            except (KeyError, ValueError, AttributeError):
+                pass
 
     def _sync_netwatch_fd(self) -> None:
         fd = self.netwatch.fileno()
@@ -220,6 +225,8 @@ class Daemon:
                 obj.on_readable()
             elif kind == "session-ra":
                 obj.on_ra_readable()
+            elif kind == "session-ident":
+                obj.on_ident_readable()
             elif kind == "usage-peers":
                 self.usage.on_readable(obj)
             elif kind == "netwatch":

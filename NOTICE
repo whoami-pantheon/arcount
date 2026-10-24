@@ -7,3 +7,9 @@ This product includes software developed by Clive Akporube
 Licensed under the Apache License, Version 2.0; see the LICENSE file.
 Arcount uses only the Python standard library at runtime. It optionally reads the IEEE OUI
 registry files from the Debian `ieee-data` package, installed separately and not redistributed here.
+
+Optional third-party data (not included, not redistributed): `sudo arcount packs fetch` can download,
+onto the user's own machine and at the user's request, data files published by other projects:
+Leetha (GPL-3.0, https://github.com/tjnull/leetha), Satori (GPL-2.0, https://github.com/xnih/satori)
+and the Wireshark manufacturer list (Wireshark is GPL-2.0-or-later, https://www.wireshark.org/).
+Arcount only reads these files as data. Their licences apply to those files, not to Arcount.

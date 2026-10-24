@@ -95,6 +95,11 @@ class Updates:
 
 
 @dataclass
+class Identify:
+    enabled: bool = True                    # listen (never send) for DHCP/mDNS/SSDP announcements
+
+
+@dataclass
 class Usage:
     enabled: bool = False                   # opt-in: measure this laptop's own traffic
     sample_seconds: float = 5
@@ -117,6 +122,7 @@ class Config:
     agent: Agent = field(default_factory=Agent)
     updates: Updates = field(default_factory=Updates)
     usage: Usage = field(default_factory=Usage)
+    identify: Identify = field(default_factory=Identify)
 
 
 def _fill(obj, data: dict, path: str):

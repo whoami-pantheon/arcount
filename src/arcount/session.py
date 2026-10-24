@@ -114,6 +114,7 @@ class Session:
         self._visit = object()                       # one join; hosts are counted once per visit
         self._arp_times: dict[str, deque] = {}       # R16: recent ARP frame times per sender MAC
         self._flooders: set[str] = set()
+        self._facts_cache: dict[tuple, float] = {}
         self._res = None
         self._gen = 0              # bumped on every (re)identification; stale callbacks check it
 
@@ -362,6 +363,22 @@ class Session:
                 f"network was upgraded; otherwise a possible evil twin.",
                 macs=[self.sig.bssid], details={"bssid": self.sig.bssid}))
         return out
+
+    def on_ident_readable(self) -> None:
+        """Record what devices announce about themselves (host name, DHCP/mDNS/SSDP strings)."""
+        if self.cap is None:
+            return
+        store, now = self.ctx.store, self.ctx.clock.wall()
+        for f in self.cap.read_ident():
+            if f.mac == self.sig.our_mac:
+                continue
+            key = (f.mac, f.key, f.value)
+            if now - self._facts_cache.get(key, 0) < 3600:      # refreshed within the hour
+                continue
+            if len(self._facts_cache) > 5000:
+                self._facts_cache.clear()
+            self._facts_cache[key] = now
+            store.note_fact(f.mac, f.key, f.value, now)
 
     def on_ra_readable(self) -> None:
         if self.cap is None:

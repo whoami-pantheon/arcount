@@ -175,7 +175,7 @@ def test_migration_from_v1(tmp_path):
     c.commit()
     c.close()
     st = Store(db)
-    assert st.db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+    assert st.db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
     st.db.execute("SELECT * FROM usage").fetchall()
 
 

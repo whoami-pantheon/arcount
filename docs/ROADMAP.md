@@ -44,6 +44,10 @@ IPv4-only monitoring leaves a gap. On most networks IPv6 is on whether or not th
   - Treat repeated delivery failures during an active alert as a signal in themselves.
 - **Privacy:** alerts contain SSIDs, MACs and locations. Add a `redact` option.
 
+## Device identification: what is done and what is not
+**Done:** passive DHCP / mDNS / SSDP listening, built-in rules, optional Leetha / Satori / Wireshark data packs (`arcount packs`), confidence scoring.
+**Not done:** TCP/IP (p0f-style) and TLS (JA3/JA4) fingerprints, because they need other devices' connection packets, which a switched or Wi-Fi client does not receive; DHCPv6 and NetBIOS names; Fingerbank (licence: commercial database, see `docs/COMMANDS.md`); an opt-in cloud lookup (it would send device fingerprints to a third party); learning from the router's DHCP lease table or `arp`-style tables.
+
 ## Other ideas
 - Rogue DHCP server detection: a second `dhcp_server_identifier` or offer source MAC on a known profile.
 - Evil-twin heuristics: the same SSID with a different BSSID OUI, or a security type downgrade.

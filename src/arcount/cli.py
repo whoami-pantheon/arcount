@@ -7,7 +7,7 @@ import sys
 
 from . import __version__, groupfix
 from .detector import Severity
-from .commands.admin import (cmd_config, cmd_forget, cmd_import, cmd_name, cmd_pause, cmd_reject,
+from .commands.admin import (cmd_config, cmd_forget, cmd_import, cmd_name, cmd_packs, cmd_pause, cmd_reject,
                              cmd_rename, cmd_resume, cmd_test_alert, cmd_trust)
 from .commands.common import (DEFAULT_DB, DEFAULT_SOCK, CliError, ctl, fmt_bits,  # noqa: F401
                               fmt_bytes, fmt_ts, parse_duration, table)
@@ -50,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="also list the N remote hosts with the most traffic (needs [usage] per_host)")
     p.add_argument("--watch", action="store_true", help="live speed, refreshed every 2 s")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p = add("packs", cmd_packs, "optional third-party data packs for device identification (sudo to change)")
+    p.add_argument("action", nargs="?", default="list", choices=["list", "fetch", "remove"],
+                   help="list (default), fetch (download), remove")
+    p.add_argument("names", nargs="*", help="pack names (default: all): leetha, satori, wireshark")
+    p.add_argument("--yes", action="store_true", help="do not ask before downloading")
+    p.add_argument("--force", action="store_true", help="download again even if fetched recently")
     p = add("name", cmd_name, "give a device (MAC) a name, list names, or remove one (sudo to change)")
     p.add_argument("mac", nargs="?", help="device MAC address (omit to list the names)")
     p.add_argument("label", nargs="?", help="the name, e.g. \"Anna's phone\"")

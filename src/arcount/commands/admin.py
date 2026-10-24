@@ -182,3 +182,49 @@ def _flatten(prefix, val):
             yield from _flatten(f"{prefix}.{k}", v)
     else:
         yield prefix, val
+
+
+def cmd_packs(args) -> int:
+    """List, download or remove the optional third-party data packs (GPL-family data)."""
+    from .. import packs
+    root = packs.packs_dir(args.db)
+    if args.action == "list":
+        rows = []
+        for e in packs.status(root):
+            rows.append([e["name"], e["license"].split(" (")[0], "installed " + fmt_ts(e["fetched"])
+                         if e["installed"] else "not installed", e["what"]])
+        print(table(rows, ["PACK", "LICENSE", "STATE", "USED FOR"]))
+        print("\nThese are third-party data files; Arcount does not include them. "
+              "`sudo arcount packs fetch` downloads them to this machine.")
+        return 0
+    need_root(args)
+    names = args.names or list(packs.PACKS)
+    for n in names:
+        if n not in packs.PACKS:
+            raise CliError(f"unknown pack {n!r} (see `arcount packs list`)")
+    if args.action == "remove":
+        for n in names:
+            print(f"{n}: " + ("removed" if packs.remove(root, n) else "was not installed"))
+        return 0
+    for n in names:
+        p = packs.PACKS[n]
+        print(f"{p.title}\n  licence : {p.license}\n  source  : {p.homepage}\n  used for: {p.what}")
+        for u in p.files.values():
+            print(f"  download: {u}")
+    print("\nThis data is NOT part of Arcount (Apache-2.0). It is published under the licence above\n"
+          "and is downloaded to your own machine, where Arcount only reads it as data.")
+    if not args.yes:
+        if not sys.stdin.isatty():
+            raise CliError("not a terminal: add --yes to confirm the download")
+        if input("Download now? [y/N] ").strip().lower() not in ("y", "yes"):
+            print("cancelled")
+            return 1
+    failed = 0
+    for n in names:
+        try:
+            got = packs.fetch(root, n, force=args.force)
+            print(f"{n}: installed {', '.join(got)}")
+        except packs.PackError as e:
+            failed += 1
+            print(f"{n}: {e}", file=sys.stderr)
+    return 1 if failed else 0

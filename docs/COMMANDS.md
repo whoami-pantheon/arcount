@@ -48,7 +48,9 @@ Devices seen on a network, with vendor, first/last seen and how many times.
 
 **VENDOR** comes from the offline IEEE registries (the `ieee-data` package: about 36 000 manufacturer prefixes, plus the longer MA-M and MA-S ranges). It names the company that made the network chip, so TVs, cameras, printers and IoT devices show their maker (for example "Hangzhou Hikvision Digital Technology", Samsung, LG, Intel), not the device type. A phone or laptop using a randomised address shows `randomised/virtual`, and an unlisted prefix or a missing `ieee-data` package leaves the column empty. Without `ieee-data`, run `sudo apt install ieee-data`.
 
-**LIKELY TYPE** is a guess from the maker's name, never a fact (`arcount mac` shows it too). A specialist maker gives a plain answer: `camera` (Hikvision, Dahua, Axis, Reolink...), `printer`, `router / network gear`, `NAS / storage`, `game console`, `TV / streaming`, `VoIP phone`, `smart home / IoT`. A maker of many products gives a short list ending in `?`, for example Apple is `iPhone / Mac / iPad / Apple TV?` and Samsung `phone / TV / appliance?`. The gateway of the network is `gateway / router`, a randomised address is `phone / laptop (random MAC)`, and known virtual-machine prefixes (VMware, VirtualBox, Hyper-V, QEMU/KVM, Docker) are named. It is blank when the maker is unknown or generic (about 40% of the registry's prefixes get a type, mostly the large and specialist makers; the rest are small or generic ones, so expect gaps). Name a device yourself with `arcount name` when you know what it is.
+**HOSTNAME** is the name the device announced about itself (in its DHCP request or an mDNS answer), when Arcount heard one; see "Device identification" below.
+
+**LIKELY TYPE** is a guess, never a fact (`arcount mac` shows it too, with the reasons and a confidence). It uses what the device announced about itself (host name, DHCP options, mDNS services and model, SSDP) and falls back to the maker's name. See "Device identification" below for the details; the next paragraph describes the maker-name fallback. A specialist maker gives a plain answer: `camera` (Hikvision, Dahua, Axis, Reolink...), `printer`, `router / network gear`, `NAS / storage`, `game console`, `TV / streaming`, `VoIP phone`, `smart home / IoT`. A maker of many products gives a short list ending in `?`, for example Apple is `iPhone / Mac / iPad / Apple TV?` and Samsung `phone / TV / appliance?`. The gateway of the network is `gateway / router`, a randomised address is `phone / laptop (random MAC)`, and known virtual-machine prefixes (VMware, VirtualBox, Hyper-V, QEMU/KVM, Docker) are named. It is blank when the maker is unknown or generic (about 40% of the registry's prefixes get a type, mostly the large and specialist makers; the rest are small or generic ones, so expect gaps). Name a device yourself with `arcount name` when you know what it is.
 
 **VISITS** is on how many separate joins to this network the device was seen, and **DAYS** on how many different calendar days. A device with `DAYS 1` is new or rare; one with many days is a regular. These are steadier trust signals than COUNT. Devices recorded before v0.4.2 start at 1 visit and 1 day.
 
@@ -96,7 +98,7 @@ vendors, the message and raw details. The id may be any unique prefix.
 Look up addresses (`aa:bb:cc:dd:ee:ff`; check `arcount mac --help` for accepted spellings):
 manufacturer (offline, from `ieee-data`: MA-L, MA-M and MA-S registries), address type (globally
 unique / randomised-locally administered / multicast / broadcast) and every network where this
-laptop has seen the address, including gateway standing.
+laptop has seen the address, including gateway standing. It also prints the likely device type with its confidence and reasons, and the host names and service strings the address announced (kept per MAC, see "Device identification").
 
 ### `arcount test-alert`
 Pushes a sample alert through every sink (journal, desktop popup).
@@ -131,6 +133,9 @@ Keys are listed in [`arcount.toml.example`](../src/arcount/data/arcount.toml.exa
 ---
 
 ## Changing things (sudo)
+
+### `arcount packs [list|fetch|remove] [names] [--yes] [--force]` (sudo to change)
+Optional third-party **data packs** that sharpen device identification. `arcount packs` lists them (no sudo). `sudo arcount packs fetch [leetha] [satori] [wireshark]` downloads them to this machine after showing each pack's licence and URLs and asking for a yes (`--yes` skips the question; it is required when there is no terminal). `sudo arcount packs remove [names]` deletes them. A pack is downloaded over HTTPS, size-capped, validated (JSON must parse, XML must have no DOCTYPE/ENTITY, `manuf` must unpack to a manufacturer list) and written atomically; nothing is installed if any file of the pack fails. Wireshark asks that its file is fetched at most weekly; `--force` overrides that. Arcount does not ship these files and only ever reads them as data. Licences and the legal notes are in "Device identification" below.
 
 ### `sudo arcount trust <network> <mac>`
 Accept a gateway MAC for a network (e.g. you replaced the router): it becomes `user_trusted` and the network `trusted`. The daemon is told to re-read it.
@@ -221,6 +226,7 @@ reviewing it. Use `--from` with a checkout you have reviewed if you prefer to in
 | `/etc/arcount/arcount.toml` | your configuration |
 | `/var/lib/arcount/arcount.db` | history (SQLite; `.pre-update` = backup taken by `update`) |
 | `/run/arcount/arcount.sock` | control socket (group `arcount`) |
+| `/var/lib/arcount/packs/` | optional data packs (`arcount packs fetch`): `leetha/`, `satori/`, `wireshark/` and `manifest.json` |
 | `/etc/systemd/system/arcountd.service` | the service unit |
 | `/etc/xdg/autostart/arcount-notify.desktop` | starts the popup agent at login |
 | `/usr/share/polkit-1/actions/org.arcount.admin.policy` | lets the popup buttons ask for your admin password (installed only where polkit exists) |
@@ -258,10 +264,31 @@ Every key, with its default. Omit anything you do not want to change. Edit with
 | `usage.sample_seconds` | `5` | how often the counters are read (minimum 1) |
 | `usage.per_host` | `false` | also count bytes per remote IPv4 address (an extra raw socket; costs CPU on fast links) |
 | `usage.ttl_days` | `400` | forget usage history older than this (applies to the per-host table too) |
+| `identify.enabled` | `true` | listen (never send) for DHCP, mDNS and SSDP announcements so devices can be given a host name and a likely type; `false` turns the extra socket off |
 | `usage.warn_mb` | `0` | desktop popup, once per day per network, when this laptop has used that many MB (0 = off) |
 | `usage.metered_warn_mb` | `0` | same, but for networks NetworkManager marks metered (`nmcli connection modify <name> connection.metered yes`); 0 = use `warn_mb` |
 
 Severities, lowest first: `info`, `low`, `medium`, `high`, `critical`.
+
+## Device identification
+Arcount can say what kind of device each host probably is, using only what the devices announce on their own. It never scans or probes anyone.
+
+**What is listened to** (a second kernel-filtered socket per interface, UDP ports 67/68, 5353 and 1900; other traffic is dropped in the kernel): DHCP requests (host name, the option-55 "parameter request list", the vendor class), mDNS answers (host name, service types such as `_ipp._tcp`, a model string) and SSDP notifications (server string, device type). These are broadcasts or multicasts, so on Wi-Fi with client isolation you may hear little or nothing. Only short, printable, length-capped strings are kept, per MAC, in the local database (`device_facts`, at most 24 values per kind per device, 20 000 rows overall, deleted after `storage.host_ttl_days`, and removed by `forget` for devices that were seen only on that network). They are never put in alerts. Set `identify.enabled = false` to stop collecting them.
+
+**How the guess is made** (in the unprivileged `arcount` command, not in the root daemon, because rules from a downloaded pack must not run as root against strings an attacker chose): every source that matches proposes a type with a confidence; the best wins and each independent source that agrees adds 5 points. 60 and above is shown plainly, 40 to 59 with a `?`, below 40 it falls back to the maker-name guess. The built-in rules are small and written for Arcount. The data packs add thousands more patterns.
+
+**Optional data packs** (`sudo arcount packs fetch`). These are third-party files under other licences, so Arcount (Apache-2.0) does **not** include them: you choose to download them to your own machine and Arcount only reads them as data, never imports or runs them.
+| Pack | Licence | What it adds |
+|---|---|---|
+| `leetha` | GPL-3.0 (tjnull/leetha) | host-name, DHCP vendor-class, DHCP option-55, mDNS and SSDP patterns |
+| `satori` | GPL-2.0 (xnih/satori) | DHCP option-55 fingerprints from the PacketFence/Fingerbank era |
+| `wireshark` | GPL-2.0-or-later (Wireshark) | extra manufacturer names for MAC prefixes the IEEE list lacks |
+
+About the Wireshark list: Wireshark itself is GPL-2.0-or-later and its `manuf.tmpl` source is tagged that way, but the generated `manuf` file that Arcount downloads carries no licence header of its own, and its vendor names come from the IEEE registry. We treat it as GPL data fetched by the user, not as part of Arcount. It is a modest improvement over the IEEE files alone and does not replace the device-type work described above.
+
+**Fingerbank** (the best-known DHCP fingerprint database) is deliberately not used: its own licence page sells the database as a commercial SQLite file and offers a rate-limited cloud API (a free tier of 300 requests an hour), so it cannot be bundled or fetched into every user's machine, and sending your devices' fingerprints to a cloud service is the opposite of what Arcount is for. The Satori pack carries many of the older open fingerprints from that lineage.
+
+**What this is not.** A host name or a pattern can be wrong or forged: a hostile device can call itself `Annas-iPhone`. The type is a hint to help you notice an odd device, never evidence that a device is what it says.
 
 ## Remote alerts (phone and email)
 Both are off by default and only forward alerts at or above their `min_severity` (default `high`).

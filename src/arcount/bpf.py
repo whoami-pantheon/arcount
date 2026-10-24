@@ -38,6 +38,29 @@ def router_advert_program():
         (0x06, 0, 0, 0))               # 7 ret 0               drop
 
 
+def udp_dest_ports_program(ports):
+    """IPv4 UDP, not a fragment, destination port in `ports` (handles IP options via the IHL)."""
+    n = len(ports)
+    # indexes: 0 ldh, 1 jeq ip, 2 ldb, 3 jeq udp, 4 ldh frag, 5 jset frag, 6 ldxb ihl, 7 ldh port,
+    # 8..8+n-1 jeq port, 8+n drop (no port matched), 9+n accept
+    drop, accept = 8 + n, 9 + n
+    prog = [
+        (0x28, 0, 0, 12),                          # ldh [12]            ethertype
+        (0x15, 0, drop - 2, ETH_P_IP),             # jeq IPv4, else drop
+        (0x30, 0, 0, 23),                          # ldb [23]            protocol
+        (0x15, 0, drop - 4, 17),                   # jeq UDP, else drop
+        (0x28, 0, 0, 20),                          # ldh [20]            flags + fragment offset
+        (0x45, drop - 6, 0, 0x1FFF),               # jset #0x1fff: a fragment -> drop
+        (0xB1, 0, 0, 14),                          # ldxb 4*([14]&0xf)   IP header length
+        (0x48, 0, 0, 16),                          # ldh [x+16]          UDP destination port
+    ]
+    for i, port in enumerate(ports):
+        prog.append((0x15, accept - (8 + i + 1), 0, port))   # jeq port -> accept
+    prog.append((0x06, 0, 0, 0))                   # drop
+    prog.append((0x06, 0, 0, 262144))              # accept
+    return tuple(prog)
+
+
 def _attach(sock: socket.socket, instructions) -> None:
     prog = b"".join(struct.pack("HBBI", *ins) for ins in instructions)
     buf = ctypes.create_string_buffer(prog, len(prog))

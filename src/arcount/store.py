@@ -6,10 +6,11 @@ import sqlite3
 import time
 from pathlib import Path
 
+from .store_facts import SCHEMA_V5, FactsMixin
 from .store_names import SCHEMA_V3, NamesMixin
 from .store_usage import SCHEMA_V2, UsageMixin
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA_V1 = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
@@ -51,7 +52,7 @@ ALTER TABLE hosts ADD COLUMN last_day TEXT;
 UPDATE hosts SET last_day=strftime('%Y-%m-%d', last_seen, 'unixepoch', 'localtime');
 """
 
-_MIGRATIONS = {1: _SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3, 4: SCHEMA_V4}
+_MIGRATIONS = {1: _SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3, 4: SCHEMA_V4, 5: SCHEMA_V5}
 def _day(ts: float) -> str:
     return time.strftime("%Y-%m-%d", time.localtime(ts))
 
@@ -60,7 +61,7 @@ GW_STATES = ("provisional", "trusted", "user_trusted", "rejected")
 KNOWN_GW_STATES = ("provisional", "trusted", "user_trusted")
 
 
-class Store(UsageMixin, NamesMixin):
+class Store(UsageMixin, NamesMixin, FactsMixin):
     def __init__(self, path: Path | str, readonly: bool = False):
         self.path = str(path)
         if readonly:
@@ -150,6 +151,8 @@ class Store(UsageMixin, NamesMixin):
         self.db.commit()
 
     def delete_profile(self, pid) -> None:
+        self.flush_hosts()
+        self.forget_facts_of_profile(pid)
         self._pending_hosts = {k: v for k, v in self._pending_hosts.items() if k[0] != pid}
         self.db.execute("DELETE FROM profiles WHERE id=?", (pid,))
         self.db.commit()
@@ -325,6 +328,8 @@ class Store(UsageMixin, NamesMixin):
             cutoff = time.strftime("%Y-%m-%d", time.localtime(now - usage_ttl_days * 86400))
             self.db.execute("DELETE FROM usage WHERE day<?", (cutoff,))
             self.db.execute("DELETE FROM usage_peers WHERE day<?", (cutoff,))
+        self.db.execute("DELETE FROM device_facts WHERE last_seen<?",
+                        (now - host_ttl_days * 86400,))
         h = self.db.execute("DELETE FROM hosts WHERE last_seen<?",
                             (now - host_ttl_days * 86400,)).rowcount
         e = self.db.execute("DELETE FROM events WHERE last_ts<?",

@@ -294,6 +294,17 @@ probes before being reported. Alerts go to the journal and, over a root-owned lo
 per-user agent that shows popups. Hardened unit (`systemd-analyze security`: 3.0), only
 `CAP_NET_RAW` and `CAP_NET_ADMIN`. Details: [`docs/DESIGN.md`](docs/DESIGN.md).
 
+## Device identification (automatic) and optional data packs
+`arcount hosts` shows each device's **hostname** and **likely type** (phone, printer, camera, TV...). Arcount listens, without sending anything, for what devices announce about themselves: DHCP requests, mDNS answers and SSDP notifications. Several matching clues raise the confidence; with only the maker's name it falls back to a weak hint. `arcount mac <address>` shows the reasons. You can switch this off with `identify.enabled = false`. It is a hint, not proof: a device can lie about its name.
+
+You can sharpen it with third-party **data packs** that Arcount does not ship (they are GPL-family data and Arcount is Apache-2.0). You pull them onto your own machine yourself:
+```sh
+arcount packs                     # what is available and what is installed
+sudo arcount packs fetch          # shows each pack's licence and URL, asks, then downloads
+sudo arcount packs remove         # delete them again
+```
+The packs are [Leetha](https://github.com/tjnull/leetha) (GPL-3.0) and [Satori](https://github.com/xnih/satori) (GPL-2.0) fingerprint data, and the [Wireshark](https://www.wireshark.org/) manufacturer list (GPL-2.0-or-later; a modest addition to the IEEE vendor names). Arcount only reads them as data. Fingerbank is not used (its database is a commercial product; see `docs/COMMANDS.md`). Everything above is described in `docs/COMMANDS.md` ("Device identification"), and its security review is in `docs/DESIGN.md` §16.
+
 ## Traffic usage (optional)
 Arcount can show how much data **this laptop** uses on each network and how fast it is going right
 now. It is off by default; turn it on with `sudo arcount config edit --restart` and set
@@ -330,7 +341,10 @@ a network's usage along with the rest of its history.
   - the polkit password prompt behind the popup "Trust" / "Update now" buttons (the rootless lab
     cannot show one; try it once on a real desktop, see `docs/DESIGN.md` §15);
   - remote alerts to a real ntfy server or SMTP host (tested against fakes only);
-  - installing the `.deb` (it was built and inspected, not installed).
+  - installing the `.deb` (it was built and inspected, not installed);
+  - device identification against real phones, TVs and printers, and the live data-pack downloads
+    (parsers and downloader are unit-tested with synthetic packets and a fake opener; see
+    `docs/DESIGN.md` §16).
   Please report anything that misbehaves.
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's planned.
 

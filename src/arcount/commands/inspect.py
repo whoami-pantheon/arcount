@@ -6,7 +6,8 @@ from pathlib import Path
 
 from .. import __version__
 from ..detector import Severity
-from ..devtype import guess
+from ..fingerprint import Engine
+from ..packs import packs_dir
 from ..oui import describe_kind, label, mac_kind, Oui
 from ..store import Store
 from .common import CliError, ctl, fmt_bits, fmt_bytes, fmt_ts, need_profile, open_store, parse_duration, short_mac, table
@@ -104,6 +105,7 @@ def cmd_hosts(args) -> int:
                            "(see `arcount networks`)")
     oui = Oui()
     names = st.device_names()
+    engine, all_facts = Engine(packs_dir(args.db)), st.facts()
     span = 7 * 86400 if args.since is None else parse_duration(args.since)
     cutoff = 0 if args.all else time.time() - span
     window = "" if args.all else f"  (seen in the last {args.since or '7d'}; --all for everything)"
@@ -115,12 +117,19 @@ def cmd_hosts(args) -> int:
         hs = [h for h in st.hosts(p["id"]) if h["last_seen"] >= cutoff
               and (args.max_days is None or h["days"] <= args.max_days)]
         hs.sort(key=keys[args.sort])
-        rows = [[h["ip"], h["mac"], names.get(h["mac"], ""), label(oui, h["mac"])[:30],
-                 guess(oui.vendor(h["mac"]), h["mac"], h["ip"] == p["gateway_ip"])[:34],
+        def guessed(h):
+            return engine.classify(all_facts.get(h["mac"]), oui.vendor(h["mac"]), h["mac"],
+                                   h["ip"] == p["gateway_ip"]).label
+
+        def hostname(h):
+            return (all_facts.get(h["mac"], {}).get("hostname") or [""])[0]
+
+        rows = [[h["ip"], h["mac"], names.get(h["mac"], ""), hostname(h)[:24], label(oui, h["mac"])[:30],
+                 guessed(h)[:38],
                  fmt_ts(h["first_seen"]), fmt_ts(h["last_seen"]), h["seen_count"], h["visits"],
                  h["days"]] for h in hs]
         print(("\n" if n else "") + f"# {p['name']}{window}")
-        print(table(rows, ["IP", "MAC", "NAME", "VENDOR", "LIKELY TYPE", "FIRST SEEN",
+        print(table(rows, ["IP", "MAC", "NAME", "HOSTNAME", "VENDOR", "LIKELY TYPE", "FIRST SEEN",
                            "LAST SEEN", "COUNT", "VISITS", "DAYS"])
               if rows else "no hosts")
     return 0
@@ -190,9 +199,14 @@ def cmd_mac(args) -> int:
                   + ("" if Path("/usr/share/ieee-data/oui.csv").exists()
                      else " (install the 'ieee-data' package for vendor names)"))
         print(f"  type      {describe_kind(kind)}")
-        likely = guess(vendor, mac)
-        if likely:
-            print(f"  likely    {likely}   (a guess from the maker's name)")
+        facts = st.facts(mac).get(mac, {}) if st is not None else {}
+        g = Engine(packs_dir(args.db)).classify(facts, vendor, mac)
+        if g.label:
+            print(f"  likely    {g.label}   (confidence {g.confidence}%)")
+            for why in g.why:
+                print(f"            - {why}")
+        for k, vals in sorted(facts.items()):
+            print(f"  {k:<9} {', '.join(vals[:6])}")
         if st is None:
             print("  history   (no history database available)")
             continue

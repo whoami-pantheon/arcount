@@ -40,7 +40,13 @@ class FakeCapture:
         self.closed = True
 
     ra_sock = None
+    ident_sock = None
     ras = ()
+    facts = ()
+
+    def read_ident(self, limit=200):
+        out, self.facts = list(self.facts), ()
+        return out
 
     def read_ra(self):
         out, self.ras = list(self.ras), []

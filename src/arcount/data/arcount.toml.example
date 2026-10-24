@@ -36,6 +36,10 @@ ether_mismatch_allow = []        # MACs of known MAC-rewriting repeaters/extende
 host_ttl_days = 90               # forget hosts not seen for this long
 event_ttl_days = 180             # forget old alerts after this long
 
+# --- Device identification -----------------------------------------------------------------
+[identify]
+enabled = true                   # listen (never send) for DHCP/mDNS/SSDP announcements: host names and device types
+
 # --- Active responses (both OFF by default; they change your system's behaviour) ----------
 [response]
 # "trusted": pin the trusted gateway's MAC in the kernel's ARP table (a permanent entry) so

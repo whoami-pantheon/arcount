@@ -259,7 +259,7 @@ def test_config_upgrade_adds_only_comments(capsys, tmp_path, env):
 
 def test_config_upgrade_uncommenting_stays_valid(tmp_path):
     from arcount import config as cfgmod, configmerge
-    new, added = configmerge.upgrade_text('[agent]\nmin_severity = "low"\n', "9.9.9")
+    new, added = configmerge.upgrade_text('[detection]\nlearning_seconds = 300\n[agent]\nmin_severity = "low"\n', "9.9.9")
     assert ("agent", "popup") in added
     import re
     un = "\n".join(ln[2:] if re.match(r"# (\[[a-z.]+\]|[a-z_]+ = )", ln) else ln for ln in new.splitlines())

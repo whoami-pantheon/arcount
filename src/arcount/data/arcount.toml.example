@@ -79,15 +79,17 @@ smtp_port = 587
 from = ""
 to = []
 credentials_file = "/etc/arcount/secrets.toml"
-redact = true
+redact = true                    # no network name / MAC / IP leaves this machine
 min_severity = "high"
 
 [agent]                          # the per-user desktop popup agent (arcount-notify)
 min_severity = "medium"
-# "card": Arcount draws its own alert card (needs python3-tk). Alerts with buttons, and high/critical
-# alerts, stay on screen until you click; nothing times out. Falls back to notify-send if tkinter or a
-# display is missing, on Wayland, or if the display refuses a test window at start-up.
-# "system": always use the desktop's notify-send popups. Restart arcount-notify after changing it.
+# How alert popups look. Choose one:
+#   "card"   Arcount's own alert card (needs python3-tk). Alerts with buttons, and high/critical
+#            alerts, stay on screen until you click; nothing times out. Falls back to the desktop's
+#            popups if tkinter or a display is missing, on Wayland, or if the display refuses it.
+#   "system" always the desktop's own notify-send popups.
+# The desktop agent reads this at login: after changing it, log out and back in.
 popup = "card"
 
 # --- Update notices -----------------------------------------------------------------------

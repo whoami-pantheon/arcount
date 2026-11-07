@@ -44,6 +44,22 @@ def _entries(example_text: str) -> list[tuple[str, str, list[str]]]:
     return out
 
 
+def _banners(example_text: str) -> dict[str, str]:
+    """section -> the one-line title the example puts above it, e.g. 'Update notices'."""
+    out, prev = {}, ""
+    for line in example_text.splitlines():
+        s = line.strip()
+        h = HEADER_RE.match(line) if not s.startswith("#") else None
+        if h:
+            out[h.group(1)] = prev
+            prev = ""
+        elif s.startswith("# ---"):
+            prev = s.strip("#- ").strip()
+        elif not s.startswith("#"):
+            prev = ""
+    return out
+
+
 def missing_settings(live_text: str, example_text: str | None = None) -> list[tuple[str, str]]:
     """(section, key) pairs the example defines that the live text neither sets nor already
     carries as a commented default. Raises tomllib.TOMLDecodeError for an unreadable live file."""
@@ -75,8 +91,15 @@ def upgrade_text(live_text: str, version: str, example_text: str | None = None):
     lines = live_text.splitlines()
     live_sections = {m.group(1) for m in (HEADER_RE.match(ln) for ln in lines
                                           if not ln.lstrip().startswith("#")) if m}
-    stamp = f"# --- added by arcount {version}: commented defaults, uncomment a line to change it ---"
-    short = f"# --- added by arcount {version} ---"
+    stamp = [
+        f"# ===== New settings added by arcount {version} =====================================",
+        "# They are switched OFF (commented out): Arcount keeps using the default shown on each.",
+        '# To change one: delete the "# " at the start of its setting line (the one with "="), set',
+        "# the value, save, then apply it with:  sudo arcount config edit --restart",
+        '# (A new [section] needs its "# [name]" line uncommented too.)',
+        "# ===================================================================================",
+    ]
+    short = [f"# ----- new in arcount {version}: to use a setting, delete the \"# \" before its line with \"=\" -----"]
     # Existing sections: insert after the section's last real (non-comment, non-blank) line.
     inserts: dict[int, list[str]] = {}
     first = True
@@ -86,7 +109,7 @@ def upgrade_text(live_text: str, version: str, example_text: str | None = None):
         h = HEADER_RE.match(ln) if real else None
         if h:
             if section in wanted and section in live_sections and last is not None:
-                inserts[last] = [stamp if first else short] + [x for _, b in wanted[section] for x in b]
+                inserts[last] = (stamp if first else short) + [x for _, b in wanted[section] for x in b]
                 first = False
             section, last = h.group(1), i
         elif real:
@@ -95,12 +118,16 @@ def upgrade_text(live_text: str, version: str, example_text: str | None = None):
     for i, ln in enumerate(lines):
         out.append(ln)
         out.extend(inserts.get(i, []))
+    banners = _banners(example_text)
     new_sections = [s for s in wanted if s not in live_sections and s]
     if new_sections:
         if out and out[-1].strip():
             out.append("")
-        out.append(stamp if first else short)
+        out.extend(stamp if first else short)
         for s in new_sections:
+            title = banners.get(s, "")
+            if title:
+                out.append(f"# {title}")
             out.append(f"# [{s}]")
             out.extend(x for _, b in wanted[s] for x in b)
             out.append("")

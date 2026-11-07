@@ -360,6 +360,10 @@ def test_update_offers_to_add_new_config_settings(root, tmp_path, capsys, monkey
     assert '# popup = "card"' in cfg.read_text() and "learning_seconds = 300" in cfg.read_text()
     assert cfg.with_name("arcount.toml.bak").read_text() == mine
     cfg.write_text(mine)
-    up.args.yes = True                      # unattended (--yes) never prompts and never touches it
+    up.args.yes = True                      # the hand-over always passes --yes: that alone must still prompt
+    monkeypatch.setattr("builtins.input", lambda *_: "n")
+    up._offer_config_upgrade("9.9.9")
+    assert "Skipped" in capsys.readouterr().out
+    up.args.unattended = True               # the user's own --yes never prompts and never touches it
     up._offer_config_upgrade("9.9.9")
     assert cfg.read_text() == mine

@@ -125,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag", help="install this release tag (e.g. v0.2.0) instead of the newest")
     p.add_argument("--repo", help="GitHub owner/name (default: [updates] repo in the config)")
     p.add_argument("--yes", "-y", action="store_true", help="do not ask before downloading and installing")
+    p.add_argument("--unattended", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--sha256", help="with --from TARBALL: expected checksum (or a .sha256 file beside it)")
     p.add_argument("--dry-run", action="store_true", help="run all checks, change nothing")
     p.add_argument("--force", action="store_true", help="reinstall the same version / allow a downgrade")

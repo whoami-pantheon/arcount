@@ -371,6 +371,8 @@ class Updater:
         if a.sock:
             argv += ["--sock", a.sock]
         argv += ["update", "--from", str(pkg), "--staged", "--yes"]
+        if a.yes:
+            argv.append("--unattended")     # the hand-over always passes --yes; this one is the user's
         for flag, on in (("--force", a.force), ("--dry-run", a.dry_run), ("--no-restart", a.no_restart)):
             if on:
                 argv.append(flag)
@@ -464,7 +466,7 @@ Check any time with: arcount doctor""")
 
     def _offer_config_upgrade(self, new: str) -> None:
         """Interactive updates only: offer to add the new version's settings as commented defaults."""
-        if self.staging or self.args.yes or not sys.stdin.isatty() or not self.cfg.exists():
+        if self.staging or getattr(self.args, "unattended", False) or not sys.stdin.isatty() or not self.cfg.exists():
             return
         try:
             miss = configmerge.missing_settings(self.cfg.read_text(), (self.cur / "data/arcount.toml.example").read_text())

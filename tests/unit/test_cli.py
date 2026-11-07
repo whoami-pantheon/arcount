@@ -204,7 +204,7 @@ def test_help_lists_every_command(capsys):
     with pytest.raises(SystemExit):
         cli.main(["--help"])
     out = capsys.readouterr().out
-    for c in ("status", "networks", "hosts", "events", "show", "trust", "reject", "rename", "forget",
+    for c in ("status", "networks", "hosts", "events", "warnings", "show", "trust", "reject", "rename", "forget",
               "import-arpwatch", "pause", "resume", "test-alert", "mac", "config", "doctor",
               "setup", "update"):
         assert c in out, c
@@ -215,3 +215,18 @@ def test_hosts_sort_and_max_days(capsys, env):
     assert rc == 0 and "VISITS" in out and "DAYS" in out
     rc, out, _ = run(capsys, env, "hosts", "HomeWifi 10.0.0.0/24", "--max-days", "0")
     assert rc == 0 and "no hosts" in out
+
+
+def test_warnings_by_network_name_defaults_to_popup_level(capsys, env):
+    rc, out, _ = run(capsys, env, "warnings", "HomeWifi 10.0.0.0/24")
+    assert rc == 0 and "Gateway MAC changed on HomeWifi" in out and "1 warning in the last 7d" in out
+    assert "New station" not in out                                   # info-level, older than the window
+    rc, out, _ = run(capsys, env, "warnings", "HomeWifi 10.0.0.0/24", "--all", "--min-severity", "info")
+    assert "New station" in out and "2 warnings ever" in out
+
+
+def test_warnings_without_a_network_needs_a_live_connection(capsys, env):
+    rc, _, err = run(capsys, env, "warnings")
+    assert rc == 1 and "cannot reach arcountd" in err
+    rc, _, err = run(capsys, env, "warnings", "nope")
+    assert rc == 1 and "no such network" in err

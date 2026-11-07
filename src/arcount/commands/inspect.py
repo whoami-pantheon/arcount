@@ -100,17 +100,42 @@ def _tip(args) -> None:
         print(tip, file=sys.stderr)
 
 
+def target_profiles(st, args) -> list:
+    """The named network, or else the network(s) this laptop is connected to right now."""
+    if args.profile:
+        return [need_profile(st, args.profile)]
+    r = ctl(args.sock, {"cmd": "status"})
+    ids = [x["profile_id"] for x in r.get("sessions", []) if x.get("profile_id")]
+    profiles = [p for p in (st.get_profile(i) for i in ids) if p]
+    if not profiles:
+        raise CliError("not connected to a known network right now; name one "
+                       "(see `arcount networks`)")
+    return profiles
+
+
+def cmd_warnings(args) -> int:
+    """Alerts that rise to a popup (medium and above by default) on one network or the current one."""
+    st = open_store(args, False)
+    sev = Severity[args.min_severity.upper()]
+    since = 0 if args.all else time.time() - parse_duration(args.since)
+    for n, p in enumerate(target_profiles(st, args)):
+        ev = st.events(since, int(sev), p["id"], args.limit)
+        if n:
+            print()
+        window = "ever" if args.all else f"in the last {args.since}"
+        print(f"{p['name']}  ({len(ev)} warning{'s' if len(ev) != 1 else ''} {window}, "
+              f"{args.min_severity} and above)")
+        rows = [[e["id"][:8], fmt_ts(e["last_ts"]), Severity(e["severity"]).name.lower(),
+                 ",".join(json.loads(e["rules"])), e["count"], "yes" if e["confirmed"] else "",
+                 e["title"]] for e in ev]
+        print(table(rows, ["ID", "LAST", "SEVERITY", "RULES", "N", "CONFIRMED", "TITLE"])
+              if rows else "none. `arcount show <id>` opens one, `arcount events` lists everything.")
+    return 0
+
+
 def cmd_hosts(args) -> int:
     st = open_store(args, False)
-    if args.profile:
-        profiles = [need_profile(st, args.profile)]
-    else:       # no network named: the network(s) this laptop is connected to right now
-        r = ctl(args.sock, {"cmd": "status"})
-        ids = [x["profile_id"] for x in r.get("sessions", []) if x.get("profile_id")]
-        profiles = [p for p in (st.get_profile(i) for i in ids) if p]
-        if not profiles:
-            raise CliError("not connected to a known network right now; name one "
-                           "(see `arcount networks`)")
+    profiles = target_profiles(st, args)
     oui = Oui()
     names = st.device_names()
     engine, all_facts = Engine(packs_dir(args.db)), st.facts()

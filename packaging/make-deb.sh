@@ -21,7 +21,7 @@ Section: net
 Priority: optional
 Architecture: all
 Depends: python3 (>= 3.11), iproute2, systemd
-Recommends: network-manager, iw, libnotify-bin, ieee-data, openssh-client, policykit-1
+Recommends: network-manager, iw, libnotify-bin, python3-tk, ieee-data, openssh-client, policykit-1
 Maintainer: Clive Akporube <techwiz39@gmail.com>
 Homepage: https://github.com/whoami-pantheon/arcount
 Description: ARP attack detector for laptops that roam between networks

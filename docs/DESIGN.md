@@ -360,6 +360,7 @@ class Alert:
   Critical = `-u critical` (sticky in XFCE).
 - The message ends with the follow-up command, e.g. `If expected: sudo arcount trust 3 aa:bb:…`.
 - The agent never performs privileged actions.
+- With `agent.popup = "card"` (default) each alert is shown by a short-lived `python3 -m arcount.popup` process (tkinter, stdlib) that prints the clicked button's key. Cards with buttons, and high/critical ones, have no timeout and no close control; buttons ignore clicks for the first 0.7 s. The agent opens an invisible test window once at start-up; on Wayland, or if tkinter, the display or that test fails, it uses the `notify-send` command above (a card that fails later also falls back, per alert). `agent.popup = "system"` forces `notify-send`.
 
 ### 6.5 Control socket protocol (`control.py`)
 

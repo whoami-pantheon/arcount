@@ -85,6 +85,7 @@ class Alerts:
 @dataclass
 class Agent:
     min_severity: str = "medium"
+    popup: str = "card"                     # "card" (own window, stays until you choose) or "system" (notify-send)
 
 
 @dataclass
@@ -166,6 +167,8 @@ def validate(cfg: Config) -> None:
             raise ConfigError(f"[{name}] min_severity must be one of {SEVERITIES}")
     if cfg.agent.min_severity not in SEVERITIES:
         raise ConfigError(f"[agent] min_severity must be one of {SEVERITIES}")
+    if cfg.agent.popup not in ("card", "system"):
+        raise ConfigError("[agent] popup must be 'card' or 'system'")
     if cfg.alerts.ntfy.enabled and not cfg.alerts.ntfy.server.startswith("https://"):
         raise ConfigError("[alerts.ntfy] server must be an https:// URL")
     em = cfg.alerts.email

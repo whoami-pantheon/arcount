@@ -11,7 +11,7 @@ from .commands.admin import (cmd_config, cmd_forget, cmd_import, cmd_name, cmd_p
                              cmd_rename, cmd_resume, cmd_test_alert, cmd_trust)
 from .commands.common import (DEFAULT_DB, DEFAULT_SOCK, CliError, ctl, fmt_bits,  # noqa: F401
                               fmt_bytes, fmt_ts, parse_duration, table)
-from .commands.inspect import (cmd_dashboard, cmd_events, cmd_hosts, cmd_mac, cmd_networks,
+from .commands.inspect import (cmd_dashboard, cmd_events, cmd_warnings, cmd_hosts, cmd_mac, cmd_networks,
                                cmd_report, cmd_show, cmd_status)
 from .commands.maintain import cmd_doctor, cmd_setup, cmd_update
 from .commands.usage import cmd_usage
@@ -70,6 +70,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--profile", help="only this network (name or id)")
     p.add_argument("--limit", type=int, default=100, help="maximum rows (default 100)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p = add("warnings", cmd_warnings, "warnings (popup-level alerts) on this network or a named one")
+    p.add_argument("profile", nargs="?", help="network name or id (default: the network(s) connected right now)")
+    p.add_argument("--since", default="7d", help="how far back, e.g. 30m, 24h, 7d (default 7d)")
+    p.add_argument("--all", action="store_true", help="everything ever recorded on it")
+    p.add_argument("--min-severity", default="medium", choices=[s.name.lower() for s in Severity],
+                   help="hide anything below this severity (default medium, what pops up)")
+    p.add_argument("--limit", type=int, default=100, help="maximum rows (default 100)")
     p = add("show", cmd_show, "show one event")
     p.add_argument("event_id", help="event id or any unique prefix of it (see `arcount events`)")
     for name, fn, h in (("trust", cmd_trust, "trust a gateway MAC, or accept a DHCP server IP (sudo)"),

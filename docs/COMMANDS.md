@@ -90,6 +90,17 @@ Recorded alerts, newest first.
 | `--limit N` | maximum rows (default 100) |
 | `--json` | machine-readable output |
 
+### `arcount warnings [network] [options]`
+The warnings (alerts at popup level) on the network you are connected to, or on the one you name:
+the same data as `arcount events`, filtered to what actually pops up. With no network it uses the
+network(s) connected right now, like `arcount hosts`.
+| Option | Meaning |
+|---|---|
+| `--since DURATION` | how far back (default `7d`) |
+| `--all` | everything ever recorded on that network |
+| `--min-severity LEVEL` | `info` `low` `medium` `high` `critical` (default `medium`) |
+| `--limit N` | maximum rows (default 100) |
+
 ### `arcount show <event-id>`
 Everything about one alert: rules, severity, confirmation, timestamps, interface, IP, MACs with
 vendors, the message and raw details. The id may be any unique prefix.
@@ -258,6 +269,7 @@ Every key, with its default. Omit anything you do not want to change. Edit with
 | `alerts.ntfy.enabled` / `.min_severity` / `.server` / `.topic_file` / `.redact` | `false` / `"high"` / `"https://ntfy.sh"` / `"/etc/arcount/secrets.toml"` / `true` | phone notifications through ntfy; `server` must be `https://`; the topic (and optional token) is read from `topic_file`; `redact = true` sends no network name, MAC or IP (see Remote alerts) |
 | `alerts.email.enabled` / `.min_severity` / `.smtp_host` / `.smtp_port` / `.from` / `.to` / `.credentials_file` / `.redact` | `false` / `"high"` / `""` / `587` / `""` / `[]` / `"/etc/arcount/secrets.toml"` / `true` | email over SMTP with certificate-verified TLS (STARTTLS, or implicit TLS on port 465); `smtp_host`, `from` and `to` are required; login from `credentials_file`; `redact` as for ntfy |
 | `agent.min_severity` | `"medium"` | lowest severity the desktop agent pops up (`--min-severity` overrides) |
+| `agent.popup` | `"card"` | `"card"`: Arcount's own alert card, which stays until you click when it has buttons or is high/critical (needs `python3-tk` and an X11 session; on Wayland, or when tkinter or the display fails a test at start-up, it falls back to `notify-send` by itself). `"system"`: always the desktop's `notify-send` popups |
 | `updates.check` | `true` | the desktop agent checks GitHub about daily and shows one popup per new release |
 | `updates.repo` | `"whoami-pantheon/arcount"` | GitHub `owner/name` for the check and for `arcount update` |
 | `updates.interval_hours` | `24` | hours between update checks (minimum 1) |

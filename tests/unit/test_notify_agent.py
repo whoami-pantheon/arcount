@@ -332,3 +332,128 @@ def test_dhcp_accept_button_only_for_fresh_live_r12():
     assert not na.can_offer_dhcp_accept({**a, "rules": ["R12", "R01"]})
     assert not na.can_offer_dhcp_accept({**a, "details": {"seen": "10.0.0.1; rm -rf /"}})
     assert not na.can_offer_dhcp_accept({**a, "ts": time.time() - 99999})
+
+
+# ---- card popups (arcount.popup) ---------------------------------------------------------
+import subprocess as _sp
+import pytest
+from arcount import popup
+
+
+class _R:
+    def __init__(self, out="", rc=0):
+        self.stdout, self.stderr, self.returncode = out, "", rc
+
+
+@pytest.fixture
+def card_style(monkeypatch):
+    monkeypatch.setattr(na, "POPUP_STYLE", "card")
+
+
+def test_card_offer_disconnect_runs_nmcli_only_on_disconnect(card_style):
+    seen = []
+
+    def run(cmd, **k):
+        seen.append(cmd)
+        return _R("disconnect") if "arcount.popup" in cmd else _R("", 0)
+    assert na.offer_disconnect(offer_alert(), run)
+    assert seen[0][1:3] == ["-m", "arcount.popup"] and "notify-send" not in seen[0]
+    assert ["nmcli", "device", "disconnect", "wlan0"] in seen
+    seen.clear()
+    assert na.offer_disconnect(offer_alert(), lambda c, **k: seen.append(c) or _R("keep"))
+    assert len(seen) == 1                                           # Stay connected: nothing else ran
+
+
+def test_card_offer_is_persistent_with_both_buttons(card_style):
+    seen = []
+    na.offer_disconnect(offer_alert(), lambda c, **k: seen.append(c) or _R("keep"))
+    spec = json.loads(seen[0][-1])
+    assert spec["persistent"] is True and spec["confirmed"] is True
+    assert [a[0] for a in spec["actions"]] == ["disconnect", "keep"] and spec["actions"][0][1] == "Disconnect wlan0"
+
+
+def test_card_unavailable_falls_back_to_notify_send(card_style):
+    seen = []
+
+    def run(cmd, **k):
+        seen.append(cmd)
+        return _R("", 2) if "arcount.popup" in cmd else _R("keep")
+    assert na.offer_disconnect(offer_alert(), run)
+    assert seen[1][0] == "notify-send" and "-A" in seen[1]
+
+
+def test_card_timeout_means_no_action(card_style):
+    def run(cmd, **k):
+        raise _sp.TimeoutExpired(cmd, 1)
+    assert na.offer_disconnect(offer_alert(), run)                  # True = handled, nothing disconnected
+
+
+def test_card_plain_alerts_persist_only_for_high_and_critical(card_style):
+    for sev, want in (("critical", True), ("high", True), ("medium", False), ("low", False)):
+        seen = []
+        na.show(alert(sev), lambda c, **k: seen.append(c) or _R("ok"), threaded=False)
+        assert json.loads(seen[0][-1])["persistent"] is want and "notify-send" not in seen[0], sev
+
+
+def test_system_style_never_starts_a_card():
+    assert na.POPUP_STYLE == "system"
+    seen = []
+    na.show(offer_alert(), lambda c, **k: seen.append(c) or _R("keep"), threaded=False)
+    assert seen[0][0] == "notify-send"
+
+
+def test_popup_spec_is_bounded_and_clean():
+    s = popup.parse_spec(json.dumps({"title": "T\x1b[31m" + "x" * 500, "body": "b" * 5000, "severity": "weird",
+                                     "actions": [["ok", "Fine"], ["bad key!", "x"], ["a", "b"], ["c", "d"], ["e", "f"]],
+                                     "persistent": True, "slot": 99}))
+    assert len(s["title"]) <= 90 and "\x1b" not in s["title"] and len(s["body"]) <= 600
+    assert s["severity"] == "medium" and s["slot"] == 5
+    assert [a[0] for a in s["actions"]] == ["ok", "a", "c"]         # bad key dropped, max three
+    assert s["persistent"] is True and s["timeout"] == 0
+
+
+def test_popup_without_actions_cannot_be_persistent():
+    s = popup.parse_spec(json.dumps({"title": "t", "persistent": True, "timeout": 9999}))
+    assert s["persistent"] is False and 3 <= s["timeout"] <= 120
+
+
+def test_popup_bad_spec_exits_2_without_a_display(monkeypatch):
+    assert popup.main(["--spec", "not json"]) == 2
+    monkeypatch.setattr(popup, "show", lambda spec: (_ for _ in ()).throw(RuntimeError("no display")))
+    assert popup.main(["--spec", "{}"]) == 2
+
+
+def test_agent_popup_config_validated(tmp_path):
+    from arcount.config import load, ConfigError
+    f = tmp_path / "a.toml"
+    f.write_text('[agent]\npopup = "neon"\n')
+    with pytest.raises(ConfigError):
+        load(str(f))
+    f.write_text('[agent]\npopup = "system"\n')
+    assert load(str(f)).agent.popup == "system"
+
+
+def test_card_is_not_used_on_wayland_or_without_a_display(monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    assert popup.unavailable_reason() in (None, "python3-tk is not installed")
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    assert "Wayland" in popup.unavailable_reason()
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert "Wayland" in popup.unavailable_reason() and not popup.available()
+    monkeypatch.delenv("WAYLAND_DISPLAY")
+    monkeypatch.delenv("DISPLAY")
+    assert popup.unavailable_reason() == "no X display"
+
+
+def test_probe_false_when_the_child_fails(monkeypatch):
+    monkeypatch.setattr(popup.subprocess, "run", lambda *a, **k: _R("", 2))
+    assert popup.probe() is False
+    monkeypatch.setattr(popup.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("x")))
+    assert popup.probe() is False
+
+
+def test_popup_requires_a_spec_unless_probing():
+    assert popup.main([]) == 2

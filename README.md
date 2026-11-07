@@ -44,7 +44,7 @@ minutes *learning* it, after which it is fully armed.
 ### Other ways to install
 **A signed release** (no git needed). Check the signature before you run anything from it:
 ```sh
-V=0.5.4
+V=0.6.0
 curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz
 curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz.sig
 tar xzf arcount-$V.tar.gz
@@ -77,6 +77,7 @@ On Debian/Ubuntu/Kali: `sudo apt install iproute2 network-manager iw libnotify-b
 ```sh
 arcount status                     # interfaces being watched, their state, gateway, trust
 arcount events                     # alerts from the last 24 h   (--since 7d --min-severity medium)
+arcount warnings                   # popup-level warnings on the network you are on (or `arcount warnings "Home"`)
 arcount show <event-id>            # full details of one alert
 arcount networks                   # every network learned so far
 arcount hosts                      # devices seen on the network you are on  (--since 15m = "right now")
@@ -187,7 +188,7 @@ are watched **at the same time** (e.g. Wi-Fi and Ethernet), each with its own st
 ### Disconnect offer
 Arcount **never** disconnects you unless you turn it on yourself. With `disconnect = "off"` (the default) a **confirmed** attack on your gateway still produces a
 popup with **Disconnect** and **Stay connected** buttons. Nothing happens unless you click
-Disconnect (it runs `nmcli device disconnect <iface>` as you). Set `disconnect` to
+Disconnect (it runs `nmcli device disconnect <iface>` as you). The popup is Arcount's own alert card (needs `python3-tk` and an X11 session; on Wayland, or if the display will not take it, Arcount uses your desktop's own notifications instead): it stays on screen until you click one of the two buttons, and ignores the keyboard. `[agent] popup = "system"` turns the card off. Set `disconnect` to
 `confirmed_high` / `confirmed_critical` to do it automatically instead.
 
 ### MAC lookup
@@ -340,11 +341,13 @@ a network's usage along with the rest of its history.
   history alone. Look at "SITE: new" and unfamiliar gateway vendors.
 - **Detection, not a shield.** Use a VPN and HTTPS; Arcount tells you the local network is being
   tampered with.
-- **Not yet verified on real hardware (v0.5.4).** These parts are unit-tested with fakes but were
+- **Not yet verified on real hardware (v0.6.0).** These parts are unit-tested with fakes but were
   not exercised end to end:
   - the polkit password prompt behind the popup "Trust" / "Update now" buttons (the rootless lab
     cannot show one; try it once on a real desktop, see `docs/DESIGN.md` §15);
   - remote alerts to a real ntfy server or SMTP host (tested against fakes only);
+  - the alert card on Wayland and on desktops other than the maintainer's X11/XFCE (it was checked on
+    a virtual X display and one real X11 desktop; Wayland sessions use `notify-send` instead);
   - installing the `.deb` (it was built and inspected, not installed);
   - device identification against real phones, TVs and printers, and the live data-pack downloads
     (parsers and downloader are unit-tested with synthetic packets and a fake opener; see

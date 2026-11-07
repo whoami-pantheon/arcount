@@ -80,6 +80,11 @@ def preflight(out: Out, need_systemd=True) -> None:
             out.fail(f"{tool} missing: {why}")
         else:
             out.warn(f"{tool} missing: {why}")
+    try:
+        import tkinter  # noqa: F401
+        out.ok("tkinter (alert cards)")
+    except ImportError:
+        out.warn("tkinter missing: alerts fall back to plain notifications (python3-tk for the alert card)")
     if need_systemd:
         if Path("/run/systemd/system").is_dir():
             out.ok("systemd")

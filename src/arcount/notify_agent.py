@@ -1,7 +1,8 @@
 """arcount-notify: per-user desktop notification agent.
 
 Runs in the logged-in user's session, subscribes to the daemon's control socket and
-shows alerts with notify-send. It holds no privileges of its own. The one action it can take is
+shows alerts as a card (arcount.popup, tkinter) or, as a fallback, with notify-send. It holds no
+privileges of its own. The one action it can take is
 the user's own choice on a popup: "Disconnect", which runs `nmcli device disconnect <iface>` as
 the user (NetworkManager's policy decides whether that is permitted).
 """
@@ -20,7 +21,7 @@ import sys
 import threading
 import time
 
-from . import __version__, github, groupfix
+from . import __version__, github, groupfix, popup
 from .config import SEVERITIES, Config, ConfigError, Updates, load
 
 log = logging.getLogger("arcount-notify")
@@ -32,6 +33,61 @@ MAX_BODY = 900
 STYLE = {"info": ("low", "dialog-information"), "low": ("low", "dialog-information"),
          "medium": ("normal", "dialog-warning"), "high": ("normal", "dialog-error"),
          "critical": ("critical", "dialog-error")}
+
+
+POPUP_STYLE = "system"      # "card" (arcount.popup) or "system" (notify-send); main() sets it from config
+PERSISTENT_SEVERITIES = ("high", "critical")      # cards for these stay until dismissed
+_slots = 0
+_slots_lock = threading.Lock()
+
+
+def card_spec(alert: dict, actions: list, persistent: bool, slot: int = 0) -> dict:
+    return {"title": str(alert.get("title", "Arcount alert")), "body": str(alert.get("message", "")),
+            "severity": alert.get("severity_name", "medium"), "confirmed": bool(alert.get("confirmed")),
+            "actions": [list(a) for a in actions], "persistent": persistent, "slot": slot}
+
+
+def card_command(spec: dict) -> list[str]:
+    return [sys.executable, "-m", "arcount.popup", "--spec", json.dumps(spec)]
+
+
+def card_choice(alert: dict, actions: list, persistent: bool, runner=subprocess.run):
+    """Show the card and wait for a click. Returns the clicked key ('' = closed without one), or
+    None when cards are off or cannot be shown (the caller then uses notify-send)."""
+    global _slots
+    if POPUP_STYLE != "card":
+        return None
+    with _slots_lock:
+        slot, _slots = _slots, _slots + 1
+    try:
+        r = runner(card_command(card_spec(alert, actions, persistent, slot)), capture_output=True, text=True,
+                   timeout=OFFER_MAX_AGE if persistent else 60, check=False)
+    except subprocess.TimeoutExpired:
+        return ""
+    except OSError as e:
+        log.error("popup failed: %s", e)
+        return None
+    finally:
+        with _slots_lock:
+            _slots -= 1
+    if getattr(r, "returncode", 2) != 0:
+        return None
+    return (getattr(r, "stdout", "") or "").strip()
+
+
+def notify_plain(alert: dict, runner=subprocess.run, persistent: bool | None = None) -> bool:
+    """An alert with no action to offer. High/critical cards stay until dismissed."""
+    if POPUP_STYLE == "card":
+        if persistent is None:
+            persistent = alert.get("severity_name") in PERSISTENT_SEVERITIES
+        if card_choice(alert, [("ok", "Dismiss")], persistent, runner) is not None:
+            return True
+    try:
+        runner(build_command(alert), timeout=10, check=False)
+        return True
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log.error("notify-send failed: %s", e)
+        return False
 
 
 def sev_rank(name: str) -> int:
@@ -96,16 +152,19 @@ def pkexec_command(*args: str) -> list[str]:
 def offer_action(alert: dict, key: str, label: str, argv: list[str], runner=subprocess.run) -> bool:
     """Popup with one button. Runs `argv` (via polkit, which asks for the admin password) only
     when the user clicks it."""
-    cmd = ["notify-send", "-a", "Arcount", "-u", "normal", "-i", "dialog-warning", "-t", "0",
-           "-A", f"{key}={label}", "-A", "no=Not now",
-           html.escape(str(alert.get("title", "Arcount"))),
-           html.escape(str(alert.get("message", "")))[:MAX_BODY]]
-    try:
-        r = runner(cmd, capture_output=True, text=True, timeout=OFFER_MAX_AGE, check=False)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        log.error("notify-send failed: %s", e)
-        return False
-    if (getattr(r, "stdout", "") or "").strip() != key:
+    chosen = card_choice({**alert, "severity_name": "medium"}, [(key, label), ("no", "Not now")], True, runner)
+    if chosen is None:
+        cmd = ["notify-send", "-a", "Arcount", "-u", "normal", "-i", "dialog-warning", "-t", "0",
+               "-A", f"{key}={label}", "-A", "no=Not now",
+               html.escape(str(alert.get("title", "Arcount"))),
+               html.escape(str(alert.get("message", "")))[:MAX_BODY]]
+        try:
+            r = runner(cmd, capture_output=True, text=True, timeout=OFFER_MAX_AGE, check=False)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log.error("notify-send failed: %s", e)
+            return False
+        chosen = (getattr(r, "stdout", "") or "").strip()
+    if chosen != key:
         return True
     log.warning("user chose %s: %s", key, " ".join(argv))
     try:
@@ -116,10 +175,7 @@ def offer_action(alert: dict, key: str, label: str, argv: list[str], runner=subp
     done = {"severity_name": "low" if ok else "high",
             "title": f"{label}: done" if ok else f"{label}: failed",
             "message": detail or ("Finished." if ok else "The command did not complete.")}
-    try:
-        runner(build_command(done), timeout=10, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    notify_plain(done, runner, persistent=not ok)
     return ok
 
 
@@ -155,12 +211,9 @@ def show(alert: dict, runner=subprocess.run, threaded: bool = True) -> bool:
             threading.Thread(target=offer_disconnect, args=(alert, runner), daemon=True).start()
             return True
         return offer_disconnect(alert, runner)
-    try:
-        runner(build_command(alert), timeout=10, check=False)
-        return True
-    except (OSError, subprocess.TimeoutExpired) as e:
-        log.error("notify-send failed: %s", e)
-        return False
+    if POPUP_STYLE == "card":
+        return _spawn(notify_plain, (alert, runner), threaded)     # a card can wait for a click
+    return notify_plain(alert, runner)
 
 
 def _spawn(fn, args, threaded: bool) -> bool:
@@ -173,13 +226,16 @@ def _spawn(fn, args, threaded: bool) -> bool:
 def offer_disconnect(alert: dict, runner=subprocess.run) -> bool:
     """Show the popup with Disconnect / Stay connected; act only on an explicit Disconnect."""
     iface = alert["iface"]
-    try:
-        r = runner(build_command(alert, offer=True), capture_output=True, text=True,
-                   timeout=OFFER_MAX_AGE, check=False)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        log.error("notify-send failed: %s", e)
-        return False
-    if (getattr(r, "stdout", "") or "").strip() != "disconnect":
+    chosen = card_choice(alert, [("disconnect", f"Disconnect {iface}"), ("keep", "Stay connected")], True, runner)
+    if chosen is None:
+        try:
+            r = runner(build_command(alert, offer=True), capture_output=True, text=True,
+                       timeout=OFFER_MAX_AGE, check=False)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log.error("notify-send failed: %s", e)
+            return False
+        chosen = (getattr(r, "stdout", "") or "").strip()
+    if chosen != "disconnect":
         return True
     log.warning("user chose to disconnect %s", iface)
     try:
@@ -193,10 +249,7 @@ def offer_disconnect(alert: dict, runner=subprocess.run) -> bool:
     note["title"] = f"Disconnected {iface}" if ok else f"Could not disconnect {iface}"
     note["message"] = ("Reconnect from the network menu when you are on a trusted network." if ok
                        else f"{detail}. Run: sudo nmcli device disconnect {iface}")
-    try:
-        runner(build_command(note), timeout=10, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    notify_plain(note, runner, persistent=not ok)
     return ok
 
 
@@ -386,13 +439,20 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(name)s: %(message)s")
-    if not shutil.which("notify-send"):
-        log.error("notify-send not found (install libnotify-bin)")
-        return 1
     try:
         cfg = load()
     except ConfigError:
         cfg = Config()
+    global POPUP_STYLE
+    if cfg.agent.popup == "card":
+        why = popup.unavailable_reason() or (None if popup.probe() else "the display refused a test window")
+        if why is None:
+            POPUP_STYLE = "card"
+        else:
+            log.warning("alert cards are not used (%s); using notify-send", why)
+    if POPUP_STYLE != "card" and not shutil.which("notify-send"):
+        log.error("notify-send not found (install libnotify-bin)")
+        return 1
     min_sev = args.min_severity or cfg.agent.min_severity
     if cfg.updates.check and not args.no_update_check:
         threading.Thread(target=update_loop, args=(cfg.updates,), daemon=True).start()

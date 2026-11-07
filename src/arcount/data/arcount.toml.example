@@ -84,6 +84,11 @@ min_severity = "high"
 
 [agent]                          # the per-user desktop popup agent (arcount-notify)
 min_severity = "medium"
+# "card": Arcount draws its own alert card (needs python3-tk). Alerts with buttons, and high/critical
+# alerts, stay on screen until you click; nothing times out. Falls back to notify-send if tkinter or a
+# display is missing, on Wayland, or if the display refuses a test window at start-up.
+# "system": always use the desktop's notify-send popups. Restart arcount-notify after changing it.
+popup = "card"
 
 # --- Update notices -----------------------------------------------------------------------
 [updates]

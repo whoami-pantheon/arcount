@@ -146,7 +146,10 @@ a newer version are absent from it (defaults apply, nothing breaks). `show` and 
 naming them. `sudo arcount config upgrade` inserts each one, with its explanation, as a commented line
 inside the right section (or a commented new section at the end). It never edits, reorders or removes
 a line you wrote, so behaviour is unchanged until you uncomment something. It saves `arcount.toml.bak`
-first, checks the result still loads, and is safe to repeat. Renamed or removed keys are left alone.
+first, checks the result still loads, and is safe to repeat. At a terminal, `upgrade` first checks
+GitHub (unless `[updates] check = false`) and, if a newer release exists, offers to run `sudo arcount update`
+before adding settings, since new settings come with the new version. At a terminal, a finished
+`sudo arcount update` likewise offers to add the new settings (never with `--yes` or when unattended). Renamed or removed keys are left alone.
 
 Keys are listed in [`arcount.toml.example`](../src/arcount/data/arcount.toml.example).
 
@@ -222,7 +225,7 @@ What it does, in order:
 7. swaps the package in (old copy kept as `/opt/arcount/lib/arcount.prev`), refreshes launchers and the systemd unit;
 8. restarts the service and waits for the **new version** to answer; if it does not, **rolls back** automatically (code, and the database if it was migrated).
 
-Your config is never modified (`sudo arcount config upgrade` adds new settings as comments). Running desktop agents notice the new version and restart themselves.
+Your config is never modified (new settings are added only if you say yes, as comments: see `sudo arcount config upgrade`). Running desktop agents notice the new version and restart themselves.
 
 **Trust model:** the root of trust is the publisher's signing key shipped with every install, not
 GitHub. A compromised account or repository cannot publish an update that verifies. Key rotation is

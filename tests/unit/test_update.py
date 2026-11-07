@@ -339,3 +339,27 @@ def test_handoff_failure_modes(root, tmp_path, capsys):
     u.write_text(u.read_text().replace("def install(self, pkg", "def installx(self, pkg"))
     assert U.Updater(ns(root, src, staged=False)).update(src, tmp_path) == 0
     assert "predates staged updates" in capsys.readouterr().out
+
+
+class _Tty:
+    def isatty(self):
+        return True
+
+
+def test_update_offers_to_add_new_config_settings(root, tmp_path, capsys, monkeypatch):
+    cfg = root / "etc/arcount/arcount.toml"
+    mine = cfg.read_text()
+    up = U.Updater(ns(root))
+    up.staging = False
+    monkeypatch.setattr(U.sys, "stdin", _Tty())
+    monkeypatch.setattr("builtins.input", lambda *_: "n")
+    up._offer_config_upgrade("9.9.9")
+    assert cfg.read_text() == mine and "sudo arcount config upgrade" in capsys.readouterr().out
+    monkeypatch.setattr("builtins.input", lambda *_: "y")
+    up._offer_config_upgrade("9.9.9")
+    assert '# popup = "card"' in cfg.read_text() and "learning_seconds = 300" in cfg.read_text()
+    assert cfg.with_name("arcount.toml.bak").read_text() == mine
+    cfg.write_text(mine)
+    up.args.yes = True                      # unattended (--yes) never prompts and never touches it
+    up._offer_config_upgrade("9.9.9")
+    assert cfg.read_text() == mine

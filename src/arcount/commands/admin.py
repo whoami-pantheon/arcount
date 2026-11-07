@@ -4,7 +4,6 @@ import dataclasses
 import ipaddress
 import json
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -211,6 +210,8 @@ def _config_upgrade(path: Path, cfgmod, dry_run: bool) -> int:
         new, added = configmerge.upgrade_text(old, __version__)
     except (OSError, ValueError) as e:
         raise CliError(f"cannot read {path}: {e}") from None
+    if not dry_run and _offer_update(path, cfgmod):
+        return 0
     if not added:
         print(f"{path}: nothing to add, every setting is already there")
         return 0
@@ -218,21 +219,43 @@ def _config_upgrade(path: Path, cfgmod, dry_run: bool) -> int:
     if dry_run:
         print("dry run: nothing was changed")
         return 0
-    tmp = path.with_name(path.name + ".new")
     try:
-        tmp.write_text(new)
-        shutil.copymode(path, tmp)
-        cfgmod.load(tmp)                    # the result must still load before it replaces anything
-        bak = path.with_name(path.name + ".bak")
-        shutil.copy2(path, bak)
-        os.replace(tmp, path)
+        configmerge.apply(path, __version__, cfgmod.load)
     except (OSError, cfgmod.ConfigError) as e:
-        tmp.unlink(missing_ok=True)
         hint = " (run it with sudo)" if isinstance(e, PermissionError) else ""
         raise CliError(f"nothing changed: {e}{hint}") from None
+    bak = path.with_name(path.name + ".bak")
     print(f"added to {path}; your lines were not touched. Previous copy: {bak}\n"
           "Uncomment a line and run `sudo arcount config edit --restart` to use it.")
     return 0
+
+
+def _offer_update(path: Path, cfgmod) -> bool:
+    """If a newer release exists, offer to install it first (new settings come with the new version).
+    True when the update was run, so the caller stops: the update offers the upgrade itself."""
+    import shutil as _sh
+    from .. import __version__, github
+    from ..github import version_key
+    if not sys.stdin.isatty():
+        return False
+    try:
+        cfg = cfgmod.load(path)
+        if not cfg.updates.check:
+            return False
+        latest = github.latest_tag(cfg.updates.repo)[0].lstrip("v")
+    except Exception:       # offline, rate-limited, bad config: just carry on with the upgrade
+        return False
+    if version_key(latest) <= version_key(__version__):
+        return False
+    print(f"Arcount {latest} is available (installed {__version__}). New settings are matched "
+          "against the installed version, so updating first finds more of them.")
+    if input("Run `sudo arcount update` now? [y/N] ").strip().lower() not in ("y", "yes"):
+        return False
+    cmd = [_sh.which("arcount") or sys.argv[0], "update"]
+    rc = subprocess.run(cmd if os.geteuid() == 0 else ["sudo", *cmd], check=False).returncode
+    if rc != 0:
+        raise CliError("the update did not finish; nothing was changed in the config")
+    return True
 
 
 def _flatten(prefix, val):

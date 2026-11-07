@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 
 from . import config as cfgmod
+from . import configmerge
 from . import github
 from . import setup_cmd as S
 from . import signing
@@ -458,7 +459,31 @@ Updated {old} -> {new}.
   * Undo: sudo arcount update --force --from {self.prev}   (old version kept; history backup at
     {self.db.name}.pre-update)
 Check any time with: arcount doctor""")
+        self._offer_config_upgrade(new)
         return 0
+
+    def _offer_config_upgrade(self, new: str) -> None:
+        """Interactive updates only: offer to add the new version's settings as commented defaults."""
+        if self.staging or self.args.yes or not sys.stdin.isatty() or not self.cfg.exists():
+            return
+        try:
+            miss = configmerge.missing_settings(self.cfg.read_text(), (self.cur / "data/arcount.toml.example").read_text())
+        except (OSError, ValueError):
+            return
+        if not miss:
+            return
+        print(f"\n{len(miss)} setting(s) are new and not in {self.cfg} (defaults apply): "
+              f"{configmerge.describe(miss)}")
+        if input("Add them now as commented-out defaults (nothing changes until you uncomment)? [y/N] "
+                 ).strip().lower() not in ("y", "yes"):
+            print("Skipped. Any time: sudo arcount config upgrade")
+            return
+        try:
+            added, bak = configmerge.apply(self.cfg, new, cfgmod.load)
+        except (OSError, cfgmod.ConfigError) as e:
+            print(f"nothing changed: {e}")
+            return
+        print(f"Added {len(added)} commented setting(s) to {self.cfg} (previous copy: {bak}).")
 
 
 def db_schema_before(backup: Path | None) -> int | None:

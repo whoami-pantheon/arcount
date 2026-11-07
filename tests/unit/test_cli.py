@@ -267,3 +267,31 @@ def test_config_upgrade_uncommenting_stays_valid(tmp_path):
     f.write_text(un)
     cfg = cfgmod.load(f)
     assert cfg.agent.popup == "card" and cfg.updates.check is True
+
+
+def test_config_upgrade_offers_the_update_first(capsys, tmp_path, env, monkeypatch):
+    import subprocess
+    import sys
+    from arcount import github
+    f = tmp_path / "arcount.toml"
+    f.write_text('[agent]\nmin_severity = "high"\n')
+    calls = []
+
+    class R:
+        returncode = 0
+    monkeypatch.setattr(sys, "stdin", type("T", (), {"isatty": lambda s: True})())
+    monkeypatch.setattr(github, "latest_tag", lambda repo: ("v99.0.0", ""))
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: calls.append(cmd) or R())
+    monkeypatch.setattr(cli.os, "geteuid", lambda: 0)
+    monkeypatch.setattr("builtins.input", lambda *_: "n")
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "upgrade")
+    assert rc == 0 and calls == [] and "v99" not in out and "99.0.0 is available" in out
+    assert "# popup" in f.read_text()                       # declined: upgrade went ahead
+    f.write_text('[agent]\nmin_severity = "high"\n')
+    monkeypatch.setattr("builtins.input", lambda *_: "y")
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "upgrade")
+    assert rc == 0 and calls[0][-1] == "update"
+    assert "# popup" not in f.read_text()                   # accepted: the update offers the upgrade itself
+    monkeypatch.setattr(github, "latest_tag", lambda repo: (_ for _ in ()).throw(OSError("offline")))
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "upgrade")
+    assert rc == 0 and "# popup" in f.read_text()           # offline: carries on

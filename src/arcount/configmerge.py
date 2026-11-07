@@ -110,5 +110,28 @@ def upgrade_text(live_text: str, version: str, example_text: str | None = None):
     return "\n".join(out) + "\n", added
 
 
+def apply(path: Path, version: str, load) -> tuple[list[tuple[str, str]], Path | None]:
+    """Insert the missing settings into the file at `path`: saves `<file>.bak`, checks the result
+    with `load(path)` before it replaces anything. Returns (added, backup); added is [] if nothing
+    was missing. Raises OSError or whatever `load` raises; the original file is then untouched."""
+    import os
+    import shutil
+    new, added = upgrade_text(path.read_text(), version)
+    if not added:
+        return [], None
+    tmp = path.with_name(path.name + ".new")
+    try:
+        tmp.write_text(new)
+        shutil.copymode(path, tmp)
+        load(tmp)
+        bak = path.with_name(path.name + ".bak")
+        shutil.copy2(path, bak)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return added, bak
+
+
 def describe(pairs) -> str:
     return ", ".join(f"{s}.{k}" if s else k for s, k in pairs)

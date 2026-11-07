@@ -99,9 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("mac", cmd_mac, "look up MAC addresses: vendor, type, and where they were seen")
     p.add_argument("macs", nargs="+", metavar="MAC", help="one or more MAC addresses (any common format)")
     p = add("config", cmd_config, "show, check or edit the configuration")
-    p.add_argument("action", choices=["show", "check", "edit", "path"], nargs="?", default="show",
+    p.add_argument("action", choices=["show", "check", "edit", "path", "upgrade"], nargs="?", default="show",
                    help="show: effective settings (default) | check: validate | edit: open in editor "
-                        "| path: print the file location")
+                        "| path: print the file location "
+                        "| upgrade: add settings new in this version as commented defaults (sudo)")
+    p.add_argument("--dry-run", action="store_true", help="with upgrade: show what would be added")
     p.add_argument("--restart", action="store_true", help="with edit: restart arcountd afterwards")
     p.add_argument("--file", help=argparse.SUPPRESS)
     p = add("doctor", cmd_doctor, "diagnose the installation and say how to fix problems")

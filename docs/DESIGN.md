@@ -66,6 +66,7 @@ Arcount/
     __init__.py               # __version__
     __main__.py               # python -m arcount → cli
     config.py                 # load/validate /etc/arcount/arcount.toml, defaults, dataclasses
+    configmerge.py            # `config upgrade`: insert settings new in a release as commented defaults (never edits user lines)
     clock.py                  # Clock protocol: monotonic(), wall(); RealClock, FakeClock (tests)
     arp.py                    # Ethernet+ARP parse/build, MAC helpers (is_laa, is_multicast, fmt)
     oui.py                    # vendor lookup from ieee-data oui.csv (optional)

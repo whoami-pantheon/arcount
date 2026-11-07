@@ -44,7 +44,7 @@ minutes *learning* it, after which it is fully armed.
 ### Other ways to install
 **A signed release** (no git needed). Check the signature before you run anything from it:
 ```sh
-V=0.6.0
+V=0.6.1
 curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz
 curl -LO https://github.com/whoami-pantheon/arcount/releases/download/v$V/arcount-$V.tar.gz.sig
 tar xzf arcount-$V.tar.gz
@@ -88,6 +88,7 @@ arcount report                     # last 7 days: alerts, new devices, data used
 arcount name                       # list the names you gave devices
 arcount mac <mac>...               # who made this device? plus where this laptop has seen it
 arcount config show|check|path    # effective settings / validate the file / where it lives
+sudo arcount config upgrade        # add settings new in this version as commented defaults
 arcount doctor                     # diagnose problems     (--alert also sends a test popup)
 ```
 Commands that **change** things need `sudo`:
@@ -255,7 +256,8 @@ cannot get code onto your machine; there is deliberately no way to skip a *bad* 
 Then it checks the new code against your config, backs up your history, swaps the program in,
 restarts the service and **rolls back by itself** if the new version does not come up. The swap and
 rollback are carried out by the *new* version's own installer, so fixes to the updater apply to the
-very update that delivers them. Your config is never changed (new options are listed in
+very update that delivers them. Your config is never changed: `arcount config show` names the settings that are new,
+and `sudo arcount config upgrade` adds them as commented-out defaults (reference copy:
 `/opt/arcount/lib/arcount/data/arcount.toml.example`). Monitoring pauses for a few seconds during the
 restart; popup agents switch to the new version by themselves (no log-out needed).
 To install from a checkout or tarball you have reviewed instead: `sudo arcount update --from <dir|tarball>`.
@@ -341,7 +343,7 @@ a network's usage along with the rest of its history.
   history alone. Look at "SITE: new" and unfamiliar gateway vendors.
 - **Detection, not a shield.** Use a VPN and HTTPS; Arcount tells you the local network is being
   tampered with.
-- **Not yet verified on real hardware (v0.6.0).** These parts are unit-tested with fakes but were
+- **Not yet verified on real hardware (v0.6.1).** These parts are unit-tested with fakes but were
   not exercised end to end:
   - the polkit password prompt behind the popup "Trust" / "Update now" buttons (the rootless lab
     cannot show one; try it once on a real desktop, see `docs/DESIGN.md` §15);

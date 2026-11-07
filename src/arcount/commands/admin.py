@@ -4,6 +4,7 @@ import dataclasses
 import ipaddress
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -158,10 +159,18 @@ def cmd_config(args) -> int:
         for sect, val in sorted(dataclasses.asdict(cfg).items()):
             for key, v in _flatten(sect, val):
                 print(f"{key} = {json.dumps(v)}")
+        note = _missing_note(path)
+        if note:
+            print(f"# {note}")
         return 0
+    if args.action == "upgrade":
+        return _config_upgrade(path, cfgmod, args.dry_run)
     # edit
     if not path.exists():
         raise CliError(f"{path} does not exist; run `sudo arcount setup` first")
+    note = _missing_note(path)
+    if note:
+        print(note)
     editor_cmd = ["sudoedit", str(path)] if os.geteuid() != 0 else \
         [os.environ.get("VISUAL") or os.environ.get("EDITOR") or "nano", str(path)]
     if subprocess.run(editor_cmd).returncode != 0:
@@ -177,6 +186,52 @@ def cmd_config(args) -> int:
         cmd = ["systemctl", "restart", "arcountd"]
         subprocess.run(cmd if os.geteuid() == 0 else ["sudo", *cmd], check=False)
         print("restarted. Check with: arcount doctor")
+    return 0
+
+
+def _missing_note(path: Path) -> str:
+    """One line naming settings the shipped example has that this file lacks, or ''."""
+    from .. import configmerge
+    try:
+        miss = configmerge.missing_settings(path.read_text())
+    except (OSError, ValueError):
+        return ""
+    if not miss:
+        return ""
+    return (f"{len(miss)} setting(s) not in {path} (defaults apply): {configmerge.describe(miss)}. "
+            "Add them as commented defaults with: sudo arcount config upgrade")
+
+
+def _config_upgrade(path: Path, cfgmod, dry_run: bool) -> int:
+    from .. import __version__, configmerge
+    if not path.exists():
+        raise CliError(f"{path} does not exist; run `sudo arcount setup` first")
+    try:
+        old = path.read_text()
+        new, added = configmerge.upgrade_text(old, __version__)
+    except (OSError, ValueError) as e:
+        raise CliError(f"cannot read {path}: {e}") from None
+    if not added:
+        print(f"{path}: nothing to add, every setting is already there")
+        return 0
+    print(f"{len(added)} setting(s) to add as commented defaults: {configmerge.describe(added)}")
+    if dry_run:
+        print("dry run: nothing was changed")
+        return 0
+    tmp = path.with_name(path.name + ".new")
+    try:
+        tmp.write_text(new)
+        shutil.copymode(path, tmp)
+        cfgmod.load(tmp)                    # the result must still load before it replaces anything
+        bak = path.with_name(path.name + ".bak")
+        shutil.copy2(path, bak)
+        os.replace(tmp, path)
+    except (OSError, cfgmod.ConfigError) as e:
+        tmp.unlink(missing_ok=True)
+        hint = " (run it with sudo)" if isinstance(e, PermissionError) else ""
+        raise CliError(f"nothing changed: {e}{hint}") from None
+    print(f"added to {path}; your lines were not touched. Previous copy: {bak}\n"
+          "Uncomment a line and run `sudo arcount config edit --restart` to use it.")
     return 0
 
 

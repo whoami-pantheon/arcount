@@ -120,13 +120,15 @@ config validity, the running daemon, the desktop agent, and each interface (watc
 why). `--alert` also sends a test popup; `--config` validates another file. Exit code 1 if any
 check failed. Same as `arcount setup --check`.
 
-### `arcount config [show|check|edit|path] [--restart]`
+### `arcount config [show|check|edit|path|upgrade] [--restart] [--dry-run]`
 | Action | Meaning |
 |---|---|
 | `show` (default) | the effective settings, one `section.key = value` per line |
 | `check` | validate the file; says what is wrong and where |
 | `edit` | open the file (via `sudoedit` as a normal user, `$VISUAL`/`$EDITOR`/nano as root), then validate it |
 | `path` | print the config file path |
+| `upgrade` | add settings that are new in this version to your file as **commented-out defaults** (sudo); see below |
+| `--dry-run` | with `upgrade`: list what would be added, change nothing |
 | `--restart` | with `edit`: restart `arcountd` afterwards |
 
 Typical use:
@@ -138,6 +140,13 @@ arcount config check                 # validate without changing anything
 `edit` works with or without `sudo` in front (as a normal user it uses `sudoedit`, which asks for
 your password itself). If the saved file is invalid it warns you and does **not** restart, because
 `arcountd` refuses to start with a broken config; run `edit` again to fix it.
+
+**New settings after an update.** Your config file is never replaced on update, so settings added by
+a newer version are absent from it (defaults apply, nothing breaks). `show` and `edit` end with a line
+naming them. `sudo arcount config upgrade` inserts each one, with its explanation, as a commented line
+inside the right section (or a commented new section at the end). It never edits, reorders or removes
+a line you wrote, so behaviour is unchanged until you uncomment something. It saves `arcount.toml.bak`
+first, checks the result still loads, and is safe to repeat. Renamed or removed keys are left alone.
 
 Keys are listed in [`arcount.toml.example`](../src/arcount/data/arcount.toml.example).
 
@@ -213,7 +222,7 @@ What it does, in order:
 7. swaps the package in (old copy kept as `/opt/arcount/lib/arcount.prev`), refreshes launchers and the systemd unit;
 8. restarts the service and waits for the **new version** to answer; if it does not, **rolls back** automatically (code, and the database if it was migrated).
 
-Your config is never modified. Running desktop agents notice the new version and restart themselves.
+Your config is never modified (`sudo arcount config upgrade` adds new settings as comments). Running desktop agents notice the new version and restart themselves.
 
 **Trust model:** the root of trust is the publisher's signing key shipped with every install, not
 GitHub. A compromised account or repository cannot publish an update that verifies. Key rotation is

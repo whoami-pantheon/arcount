@@ -451,7 +451,8 @@ class Updater:
         print(f"""
 Updated {old} -> {new}.
   * Monitoring was interrupted for a few seconds during the restart; known networks resume at once.
-  * Your config was not touched. New options are documented in
+  * Your config was not touched. See which settings are new with `arcount config show`, and add
+    them as commented defaults with `sudo arcount config upgrade`. Reference copy:
     {self.cur / 'data/arcount.toml.example'}
   * Desktop popup agents restart themselves onto the new version within a minute.
   * Undo: sudo arcount update --force --from {self.prev}   (old version kept; history backup at

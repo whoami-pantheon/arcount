@@ -230,3 +230,40 @@ def test_warnings_without_a_network_needs_a_live_connection(capsys, env):
     assert rc == 1 and "cannot reach arcountd" in err
     rc, _, err = run(capsys, env, "warnings", "nope")
     assert rc == 1 and "no such network" in err
+
+
+def test_config_upgrade_adds_only_comments(capsys, tmp_path, env):
+    f = tmp_path / "arcount.toml"
+    mine = '[detection]\nlearning_seconds = 300   # mine\n\n[agent]\nmin_severity = "high"\n'
+    f.write_text(mine)
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "show")
+    assert "agent.popup" in out and "config upgrade" in out
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "upgrade", "--dry-run")
+    assert rc == 0 and "dry run" in out and f.read_text() == mine
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "upgrade")
+    assert rc == 0
+    new = f.read_text()
+    assert (tmp_path / "arcount.toml.bak").read_text() == mine
+    live = [ln for ln in new.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    assert live == [ln for ln in mine.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    assert "learning_seconds = 300   # mine" in new
+    assert '# popup = "card"' in new.split("[agent]")[1]          # lands inside [agent], not at the end
+    assert "# [updates]" in new and "# check = true" in new
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "check")
+    assert rc == 0
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "show")
+    assert "config upgrade" not in out
+    rc, out, _ = run(capsys, env, "config", "--file", str(f), "upgrade")
+    assert "nothing to add" in out and f.read_text() == new         # idempotent
+
+
+def test_config_upgrade_uncommenting_stays_valid(tmp_path):
+    from arcount import config as cfgmod, configmerge
+    new, added = configmerge.upgrade_text('[agent]\nmin_severity = "low"\n', "9.9.9")
+    assert ("agent", "popup") in added
+    import re
+    un = "\n".join(ln[2:] if re.match(r"# (\[[a-z.]+\]|[a-z_]+ = )", ln) else ln for ln in new.splitlines())
+    f = tmp_path / "c.toml"
+    f.write_text(un)
+    cfg = cfgmod.load(f)
+    assert cfg.agent.popup == "card" and cfg.updates.check is True

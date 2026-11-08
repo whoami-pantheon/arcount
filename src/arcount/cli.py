@@ -77,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--min-severity", default="medium", choices=[s.name.lower() for s in Severity],
                    help="hide anything below this severity (default medium, what pops up)")
     p.add_argument("--limit", type=int, default=100, help="maximum rows (default 100)")
+    p.add_argument("--details", action="store_true", help="also print each warning's one-line explanation")
     p = add("show", cmd_show, "show one event")
     p.add_argument("event_id", help="event id or any unique prefix of it (see `arcount events`)")
     for name, fn, h in (("trust", cmd_trust, "trust a gateway MAC, or accept a DHCP server IP (sudo)"),

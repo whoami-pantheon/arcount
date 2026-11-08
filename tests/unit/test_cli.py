@@ -225,6 +225,15 @@ def test_warnings_by_network_name_defaults_to_popup_level(capsys, env):
     assert "New station" in out and "2 warnings ever" in out
 
 
+def test_warnings_footer_and_details(capsys, env):
+    rc, out, _ = run(capsys, env, "warnings", "HomeWifi 10.0.0.0/24")
+    assert "arcount show <ID>" in out and "--details" in out and "msg here" not in out
+    rc, out, _ = run(capsys, env, "warnings", "HomeWifi 10.0.0.0/24", "--details")
+    assert "abcdef12  msg here" in out and "arcount show <ID>" in out and "--details" not in out
+    rc, out, _ = run(capsys, env, "warnings", "HomeWifi 10.0.0.0/24", "--since", "10s")
+    assert "arcount show <ID>" not in out                             # nothing listed, no footer
+
+
 def test_warnings_without_a_network_needs_a_live_connection(capsys, env):
     rc, _, err = run(capsys, env, "warnings")
     assert rc == 1 and "cannot reach arcountd" in err

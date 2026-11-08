@@ -100,6 +100,9 @@ network(s) connected right now, like `arcount hosts`.
 | `--all` | everything ever recorded on that network |
 | `--min-severity LEVEL` | `info` `low` `medium` `high` `critical` (default `medium`) |
 | `--limit N` | maximum rows (default 100) |
+| `--details` | also print each warning's one-line explanation under the table (who sent what, how many) |
+
+A footer under the table points to `arcount show <ID>` for the full evidence of one warning.
 
 ### `arcount show <event-id>`
 Everything about one alert: rules, severity, confirmation, timestamps, interface, IP, MACs with

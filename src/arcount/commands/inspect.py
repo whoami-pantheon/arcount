@@ -130,6 +130,13 @@ def cmd_warnings(args) -> int:
                  e["title"]] for e in ev]
         print(table(rows, ["ID", "LAST", "SEVERITY", "RULES", "N", "CONFIRMED", "TITLE"])
               if rows else "none. `arcount show <id>` opens one, `arcount events` lists everything.")
+        if rows and args.details:
+            print()
+            for e in ev:
+                print(f"{e['id'][:8]}  {e['message'] or e['title']}")
+        if rows:
+            print("\nFull evidence for one: arcount show <ID>" + ("" if args.details else
+                  "     One line each: arcount warnings --details"))
     return 0
 
 

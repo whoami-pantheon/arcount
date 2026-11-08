@@ -89,6 +89,9 @@ Recorded alerts, newest first.
 | `--profile <network>` | only one network |
 | `--limit N` | maximum rows (default 100) |
 | `--json` | machine-readable output |
+| `--details` | also print each event's one-line explanation under the table (not with `--json`, which already has the message) |
+
+A footer under the table points to `arcount show <ID>` for the full evidence of one event.
 
 ### `arcount warnings [network] [options]`
 The warnings (alerts at popup level) on the network you are connected to, or on the one you name:

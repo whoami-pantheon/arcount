@@ -59,6 +59,17 @@ def test_events_filtering_and_json(capsys, env):
     assert rc == 1 and "bad duration" in err
 
 
+def test_events_footer_and_details(capsys, env):
+    rc, out, _ = run(capsys, env, "events")
+    assert "arcount show <ID>" in out and "arcount events --details" in out and "msg here" not in out
+    rc, out, _ = run(capsys, env, "events", "--details")
+    assert "abcdef12  msg here" in out and "--details" not in out
+    rc, out, _ = run(capsys, env, "events", "--since", "10s")
+    assert "no events" in out and "arcount show <ID>" not in out
+    rc, out, _ = run(capsys, env, "events", "--json", "--details")
+    assert json.loads(out)                                            # still pure JSON
+
+
 def test_show_prefix_and_ambiguity(capsys, env):
     rc, out, _ = run(capsys, env, "show", "abcdef")
     assert rc == 0 and "msg here" in out and "confirmed" in out

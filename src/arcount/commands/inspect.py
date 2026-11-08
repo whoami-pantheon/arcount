@@ -113,6 +113,18 @@ def target_profiles(st, args) -> list:
     return profiles
 
 
+def _explain(ev, details: bool, cmd: str) -> None:
+    """Under an event table: each event's one-line explanation (--details), then where to see more."""
+    if not ev:
+        return
+    if details:
+        print()
+        for e in ev:
+            print(f"{e['id'][:8]}  {e['message'] or e['title']}")
+    print("\nFull evidence for one: arcount show <ID>" + ("" if details else
+          f"     One line each: arcount {cmd} --details"))
+
+
 def cmd_warnings(args) -> int:
     """Alerts that rise to a popup (medium and above by default) on one network or the current one."""
     st = open_store(args, False)
@@ -130,13 +142,7 @@ def cmd_warnings(args) -> int:
                  e["title"]] for e in ev]
         print(table(rows, ["ID", "LAST", "SEVERITY", "RULES", "N", "CONFIRMED", "TITLE"])
               if rows else "none. `arcount show <id>` opens one, `arcount events` lists everything.")
-        if rows and args.details:
-            print()
-            for e in ev:
-                print(f"{e['id'][:8]}  {e['message'] or e['title']}")
-        if rows:
-            print("\nFull evidence for one: arcount show <ID>" + ("" if args.details else
-                  "     One line each: arcount warnings --details"))
+        _explain(ev, args.details, "warnings")
     return 0
 
 
@@ -283,6 +289,7 @@ def cmd_events(args) -> int:
              "paused" if e["paused"] else "", e["title"]] for e in ev]
     print(table(rows, ["ID", "LAST", "SEVERITY", "RULES", "N", "CONFIRMED", "", "TITLE"])
           if rows else "no events")
+    _explain(ev, args.details, "events")
     return 0
 
 

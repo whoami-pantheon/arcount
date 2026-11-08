@@ -70,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--profile", help="only this network (name or id)")
     p.add_argument("--limit", type=int, default=100, help="maximum rows (default 100)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--details", action="store_true", help="also print each event's one-line explanation")
     p = add("warnings", cmd_warnings, "warnings (popup-level alerts) on this network or a named one")
     p.add_argument("profile", nargs="?", help="network name or id (default: the network(s) connected right now)")
     p.add_argument("--since", default="7d", help="how far back, e.g. 30m, 24h, 7d (default 7d)")
